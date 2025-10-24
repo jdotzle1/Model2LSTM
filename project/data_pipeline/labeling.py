@@ -70,16 +70,21 @@ def calculate_profile_labels(df, profile, lookforward_seconds):
         outcomes.append(outcome)
     df[f'{profile_name}_outcome'] = outcomes
     
-    # Step 2: Calculate MAE for all winners
-    print("  Step 2/4: Calculating MAE for winners...")
+    # Step 2: Calculate MAE and hold time for all winners
+    print("  Step 2/4: Calculating MAE and hold time for winners...")
     maes = []
+    hold_times = []
     for idx in range(len(df)):
         if outcomes[idx] == 'win':
             mae = calculate_mae(df, idx, profile, lookforward_seconds)
+            hold_time = calculate_hold_time(df, idx, profile, lookforward_seconds)
             maes.append(mae)
+            hold_times.append(hold_time)
         else:
             maes.append(np.nan)
+            hold_times.append(np.nan)
     df[f'{profile_name}_mae'] = maes
+    df[f'{profile_name}_hold_time'] = hold_times
     
     # Step 3: Find consecutive winning sequences
     print("  Step 3/4: Identifying consecutive winners...")
@@ -104,10 +109,17 @@ def check_target_stop(df, current_idx, profile, lookforward_seconds):
     """
     Look forward from current bar to see if target/stop hit first
     
+    Entry logic: Signal on current bar, enter at NEXT bar's open price
+    
     Returns: 'win', 'loss', or 'timeout'
     """
     
-    entry_price = df.iloc[current_idx]['close']
+    # Check if we have a next bar to enter on
+    if current_idx + 1 >= len(df):
+        return 'timeout'
+    
+    # Entry price is the NEXT bar's open price (more realistic)
+    entry_price = df.iloc[current_idx + 1]['open']
     direction = profile['direction']
     target_ticks = profile['target_ticks']
     stop_ticks = profile['stop_ticks']
@@ -123,25 +135,37 @@ def check_target_stop(df, current_idx, profile, lookforward_seconds):
         target_price = entry_price - target_points
         stop_price = entry_price + stop_points
     
-    # Look forward up to lookforward_seconds bars
-    end_idx = min(current_idx + lookforward_seconds + 1, len(df))
+    # Look forward starting from entry bar (current_idx + 1)
+    entry_idx = current_idx + 1
+    end_idx = min(entry_idx + lookforward_seconds, len(df))
     
-    for idx in range(current_idx + 1, end_idx):
+    for idx in range(entry_idx, end_idx):
         row = df.iloc[idx]
         
         if direction == 'long':
-            # Check if target hit
-            if row['high'] >= target_price:
-                return 'win'
-            # Check if stop hit
-            if row['low'] <= stop_price:
+            # Check both target and stop - if both could hit, stop wins (conservative)
+            target_hit = row['high'] >= target_price
+            stop_hit = row['low'] <= stop_price
+            
+            if target_hit and stop_hit:
+                # Both could be hit in same bar - assume stopped out (conservative)
                 return 'loss'
-        else:  # short
-            # Check if target hit
-            if row['low'] <= target_price:
+            elif target_hit:
                 return 'win'
-            # Check if stop hit
-            if row['high'] >= stop_price:
+            elif stop_hit:
+                return 'loss'
+                
+        else:  # short
+            # Check both target and stop - if both could hit, stop wins (conservative)
+            target_hit = row['low'] <= target_price
+            stop_hit = row['high'] >= stop_price
+            
+            if target_hit and stop_hit:
+                # Both could be hit in same bar - assume stopped out (conservative)
+                return 'loss'
+            elif target_hit:
+                return 'win'
+            elif stop_hit:
                 return 'loss'
     
     # Neither hit within window
@@ -156,10 +180,17 @@ def calculate_mae(df, current_idx, profile, lookforward_seconds):
     """
     Calculate Maximum Adverse Excursion (worst drawdown) for a winning trade
     
+    Entry logic: Signal on current bar, enter at NEXT bar's open price
+    
     Returns: MAE in ticks (always positive number)
     """
     
-    entry_price = df.iloc[current_idx]['close']
+    # Check if we have a next bar to enter on
+    if current_idx + 1 >= len(df):
+        return 0
+    
+    # Entry price is the NEXT bar's open price (same as check_target_stop)
+    entry_price = df.iloc[current_idx + 1]['open']
     direction = profile['direction']
     target_ticks = profile['target_ticks']
     target_points = target_ticks * TICK_SIZE
@@ -170,12 +201,14 @@ def calculate_mae(df, current_idx, profile, lookforward_seconds):
     else:
         target_price = entry_price - target_points
     
-    end_idx = min(current_idx + lookforward_seconds + 1, len(df))
+    # Look forward starting from entry bar
+    entry_idx = current_idx + 1
+    end_idx = min(entry_idx + lookforward_seconds, len(df))
     
     # Track worst adverse move before target hit
     worst_adverse_move = 0
     
-    for idx in range(current_idx + 1, end_idx):
+    for idx in range(entry_idx, end_idx):
         row = df.iloc[idx]
         
         if direction == 'long':
@@ -183,22 +216,101 @@ def calculate_mae(df, current_idx, profile, lookforward_seconds):
             adverse_move = entry_price - row['low']
             worst_adverse_move = max(worst_adverse_move, adverse_move)
             
-            # Stop when target hit
-            if row['high'] >= target_price:
+            # Stop when target hit (check for tie condition like in check_target_stop)
+            target_hit = row['high'] >= target_price
+            stop_hit = row['low'] <= (entry_price - profile['stop_ticks'] * TICK_SIZE)
+            
+            if target_hit and not stop_hit:
+                # Target hit cleanly
                 break
+            elif stop_hit:
+                # Stop hit (including tie case) - shouldn't happen for winners but safety check
+                break
+                
         else:  # short
             # For shorts, adverse move is going up
             adverse_move = row['high'] - entry_price
             worst_adverse_move = max(worst_adverse_move, adverse_move)
             
-            # Stop when target hit
-            if row['low'] <= target_price:
+            # Stop when target hit (check for tie condition like in check_target_stop)
+            target_hit = row['low'] <= target_price
+            stop_hit = row['high'] >= (entry_price + profile['stop_ticks'] * TICK_SIZE)
+            
+            if target_hit and not stop_hit:
+                # Target hit cleanly
+                break
+            elif stop_hit:
+                # Stop hit (including tie case) - shouldn't happen for winners but safety check
                 break
     
     # Convert to ticks
     mae_ticks = worst_adverse_move / TICK_SIZE
     
     return mae_ticks
+
+
+# ============================================
+# CALCULATE HOLD TIME
+# ============================================
+
+def calculate_hold_time(df, current_idx, profile, lookforward_seconds):
+    """
+    Calculate hold time (in seconds) from entry to target hit for a winning trade
+    
+    Entry logic: Signal on current bar, enter at NEXT bar's open price
+    
+    Returns: Hold time in seconds
+    """
+    
+    # Check if we have a next bar to enter on
+    if current_idx + 1 >= len(df):
+        return 0
+    
+    # Entry price is the NEXT bar's open price (same as other functions)
+    entry_price = df.iloc[current_idx + 1]['open']
+    direction = profile['direction']
+    target_ticks = profile['target_ticks']
+    target_points = target_ticks * TICK_SIZE
+    
+    # Calculate target price
+    if direction == 'long':
+        target_price = entry_price + target_points
+    else:
+        target_price = entry_price - target_points
+    
+    # Look forward starting from entry bar to find when target hit
+    entry_idx = current_idx + 1
+    end_idx = min(entry_idx + lookforward_seconds, len(df))
+    
+    for idx in range(entry_idx, end_idx):
+        row = df.iloc[idx]
+        
+        if direction == 'long':
+            # Check if target hit (same logic as check_target_stop)
+            target_hit = row['high'] >= target_price
+            stop_hit = row['low'] <= (entry_price - profile['stop_ticks'] * TICK_SIZE)
+            
+            if target_hit and not stop_hit:
+                # Target hit cleanly - calculate hold time
+                return idx - entry_idx
+            elif stop_hit:
+                # Stop hit - shouldn't happen for winners but safety check
+                return idx - entry_idx
+                
+        else:  # short
+            # Check if target hit (same logic as check_target_stop)
+            target_hit = row['low'] <= target_price
+            stop_hit = row['high'] >= (entry_price + profile['stop_ticks'] * TICK_SIZE)
+            
+            if target_hit and not stop_hit:
+                # Target hit cleanly - calculate hold time
+                return idx - entry_idx
+            elif stop_hit:
+                # Stop hit - shouldn't happen for winners but safety check
+                return idx - entry_idx
+    
+    # Target not found within window (shouldn't happen for winners)
+    return lookforward_seconds
 
 
 # ============================================
@@ -235,6 +347,7 @@ def identify_consecutive_winners(df, profile_name):
 def apply_mae_filter(df, profile_name):
     """
     Within each consecutive winning sequence, mark ONLY the bar with lowest MAE as optimal (+1)
+    If there's a tie in MAE, pick the one with shortest hold time
     All other winners in sequence get 0 (suboptimal)
     All losers get -1
     """
@@ -250,16 +363,26 @@ def apply_mae_filter(df, profile_name):
             labels.append(np.nan)
         elif outcome == 'win':
             sequence_id = df.iloc[idx][f'{profile_name}_sequence_id']
-            mae = df.iloc[idx][f'{profile_name}_mae']
             
             # Find all bars in this sequence
             sequence_mask = df[f'{profile_name}_sequence_id'] == sequence_id
             sequence_df = df[sequence_mask]
             
-            # Find the bar with minimum MAE in this sequence
-            min_mae_idx = sequence_df[f'{profile_name}_mae'].idxmin()
+            # Find minimum MAE in this sequence
+            min_mae = sequence_df[f'{profile_name}_mae'].min()
             
-            if df.index[idx] == min_mae_idx:
+            # Find all bars with minimum MAE
+            min_mae_mask = sequence_df[f'{profile_name}_mae'] == min_mae
+            min_mae_candidates = sequence_df[min_mae_mask]
+            
+            if len(min_mae_candidates) == 1:
+                # Single winner with lowest MAE
+                optimal_idx = min_mae_candidates.index[0]
+            else:
+                # Tie in MAE - pick the one with shortest hold time
+                optimal_idx = min_mae_candidates[f'{profile_name}_hold_time'].idxmin()
+            
+            if df.index[idx] == optimal_idx:
                 labels.append(1)  # Optimal winner
             else:
                 labels.append(0)  # Suboptimal winner
