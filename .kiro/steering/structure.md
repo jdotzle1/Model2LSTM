@@ -3,30 +3,43 @@
 ## Directory Organization
 
 ```
-project/
-├── config/                 # Configuration files
-│   └── config.py          # Project constants and settings
-├── data/                  # Data storage (organized by processing stage)
-│   ├── raw/              # Original DBN.ZST files converted to Parquet
-│   ├── processed/        # Fully processed datasets with labels and features
-│   └── test/             # Small test datasets for development
-├── data_pipeline/        # Core pipeline modules
-│   ├── __init__.py
-│   ├── labeling.py       # Trade outcome labeling logic
-│   ├── features.py       # Feature engineering functions
-│   └── pipeline.py       # Main pipeline orchestration
-└── scripts/              # Utility and processing scripts
-    ├── prepare_data.py
-    ├── validate_features.py
-    └── visualize_features.py
+├── project/                    # Core project modules
+│   ├── config/                # Configuration files
+│   │   └── config.py          # Project constants and settings
+│   ├── data/                  # Data storage (organized by processing stage)
+│   │   ├── raw/              # Original DBN.ZST files converted to Parquet
+│   │   ├── processed/        # Fully processed datasets with labels and features
+│   │   └── test/             # Small test datasets for development
+│   ├── data_pipeline/        # Core pipeline modules
+│   │   ├── __init__.py
+│   │   ├── labeling.py       # Original trade outcome labeling logic
+│   │   ├── features.py       # Feature engineering functions
+│   │   └── pipeline.py       # Main pipeline orchestration
+│   ├── scripts/              # Utility and processing scripts
+│   │   ├── prepare_data.py
+│   │   ├── validate_features.py
+│   │   ├── visualize_features.py
+│   │   ├── check_dataset_size.py
+│   │   ├── view_results.py
+│   │   └── test features.py
+│   └── convert_dbn.py        # Converts Databento files to Parquet format
+├── tests/                     # Testing and validation
+│   ├── validation/           # Algorithm validation scripts
+│   │   ├── validate_optimization.py  # Main validation script
+│   │   ├── test_labeling.py         # Basic labeling tests
+│   │   └── quick_validation.py      # Fast validation
+│   └── debug/               # Debugging utilities (development artifacts)
+├── docs/                     # Documentation and analysis
+├── archive/                  # Deprecated files and old implementations
+├── .kiro/steering/          # AI assistant guidance documents
+├── simple_optimized_labeling.py  # PRODUCTION: Optimized labeling algorithm
+└── label_full_dataset.py        # PRODUCTION: Full dataset processing script
 ```
 
-## Root Level Files
+## Production Files (Root Level)
 
-- `convert_dbn.py`: Converts Databento files to Parquet format
-- `test_labeling.py`: Tests labeling pipeline on sample data
-- `test features.py`: Tests feature engineering pipeline
-- `view_results.py`: Interactive data inspection tool
+- `simple_optimized_labeling.py`: **MAIN PRODUCTION** - Optimized labeling algorithm (300x faster)
+- `label_full_dataset.py`: **MAIN PRODUCTION** - Script to process full 15-year dataset
 
 ## Data Flow
 

@@ -21,15 +21,23 @@
 # Data conversion
 python project/convert_dbn.py
 
+# PRODUCTION: Label full dataset (optimized)
+python label_full_dataset.py
+
 # Pipeline testing (small samples)
-python test_labeling.py          # Test labeling logic
-python "test features.py"        # Test feature engineering  
-python view_results.py           # Interactive data inspection
+python tests/validation/test_labeling.py          # Test labeling logic
+python project/scripts/"test features.py"        # Test feature engineering  
+python project/scripts/view_results.py           # Interactive data inspection
+
+# Validation (ALWAYS run before production)
+python tests/validation/validate_optimization.py  # Validate optimized algorithm
+python tests/validation/quick_validation.py       # Quick validation
 
 # Utility scripts
 python project/scripts/prepare_data.py
 python project/scripts/validate_features.py
 python project/scripts/visualize_features.py
+python project/scripts/check_dataset_size.py
 ```
 
 ### Production Deployment (EC2)
