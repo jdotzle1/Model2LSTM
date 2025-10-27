@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Implement a comprehensive feature engineering system for ES futures trading that generates 42 features across 7 categories. The system must process datasets ranging from 947K bars (laptop testing) to 88M bars (15 years of production data on SageMaker) while maintaining perfect data integrity, preventing future data leakage, and optimizing for LSTM model training.
+Implement a comprehensive feature engineering system for ES futures trading that generates 42 features across 7 categories as defined in #[[file:docs/feature_definitions.md]] and summarized in #[[file:docs/feature_summary.md]]. The system must process datasets ranging from 947K bars (laptop testing) to 88M bars (15 years of production data on SageMaker) while maintaining perfect data integrity, preventing future data leakage, and optimizing for LSTM model training. The resulting dataset will be used to train an LSTM neural network with 6 output heads (one for each trading profile) to predict optimal entry timing for ES futures trades.
 
 ## Glossary
 
@@ -141,7 +141,7 @@ Implement a comprehensive feature engineering system for ES futures trading that
 1. THE Feature Engineering System SHALL accept the existing labeled dataset as input (39 columns including labels)
 2. THE Feature Engineering System SHALL add 42 feature columns to the existing dataset structure
 3. THE Feature Engineering System SHALL preserve all existing label columns and metadata
-4. THE Feature Engineering System SHALL ensure feature column names match exactly the specification document
+4. THE Feature Engineering System SHALL ensure feature column names match exactly the names defined in #[[file:docs/feature_definitions.md]]
 5. THE Feature Engineering System SHALL validate that feature values fall within expected ranges as documented
 6. THE Feature Engineering System SHALL provide summary statistics for all generated features
 7. THE Feature Engineering System SHALL save the enhanced dataset in Parquet format with 81 total columns (39 existing + 42 features)
