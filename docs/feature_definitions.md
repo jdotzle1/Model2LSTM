@@ -67,35 +67,40 @@ Bar 101+: [future] - cannot use this data
 - `position_in_rth_range` = (close[N-1] - rth_low) / (rth_high - rth_low)
   - Where last close was in session range (0 = at low, 1 = at high)
 
-### 3. Swing High/Low Features (10 features)
-**Purpose:** Historical swing points for reversal context
+### 3. Recent High/Low Features (10 features)
+**Purpose:** Distance from recent highs/lows to capture rotation context
 
-**✅ Swing Detection Logic (Historical Only):**
-To predict bar N, we identify swing points that occurred in the past and are now confirmed.
+**✅ Recent High/Low Logic (No Future Data):**
+To predict bar N, we look at recent highs/lows in historical windows ending at N-1.
 
-**5-Second Swing High Detection:**
+**Recent High Detection:**
 ```python
-# At bar N, look back 5 bars to check if bar N-5 was a swing high
-check_idx = N - 5
-if check_idx >= 5:  # Need enough history
-    # Check if bar N-5 was highest in 10-bar window [N-10 to N-1]
-    window_start = max(0, check_idx - 5)
-    window_end = N  # Up to but not including current bar N
-    if high[check_idx] == max(high[window_start:window_end]):
-        swing_high_5s[N] = high[check_idx]
+# At bar N, find the highest high in the last 30 bars (N-30 to N-1)
+recent_high_30s = max(high[N-30:N-1])
+distance_from_recent_high_30s = close[N-1] - recent_high_30s
+
+# Same for 300-bar window
+recent_high_300s = max(high[N-300:N-1])
+distance_from_recent_high_300s = close[N-1] - recent_high_300s
 ```
 
 **Features:**
-- `last_swing_high_5s` = most recent confirmed 5s swing high (forward fill)
-- `distance_from_swing_high_5s` = close[N-1] - last_swing_high_5s
-- `bars_since_swing_high_5s` = bars elapsed since last swing high
-- `position_in_swing_range_5s` = (close[N-1] - last_swing_low_5s) / (last_swing_high_5s - last_swing_low_5s)
+- `recent_high_30s` = max(high[N-30:N-1]) - highest high in last 30 bars
+- `distance_from_recent_high_30s` = close[N-1] - recent_high_30s
+- `distance_from_recent_high_30s_pct` = distance_from_recent_high_30s / recent_high_30s * 100
+- `bars_since_recent_high_30s` = bars elapsed since the recent high occurred
+- `recent_low_30s` = min(low[N-30:N-1]) - lowest low in last 30 bars
+- `distance_from_recent_low_30s` = close[N-1] - recent_low_30s
+- `distance_from_recent_low_30s_pct` = distance_from_recent_low_30s / recent_low_30s * 100
+- `bars_since_recent_low_30s` = bars elapsed since the recent low occurred
+- `position_in_recent_range_30s` = (close[N-1] - recent_low_30s) / (recent_high_30s - recent_low_30s)
+- `recent_range_30s` = recent_high_30s - recent_low_30s
 
-**Same logic for:**
-- `last_swing_low_5s` and related features
-- 60-second swing highs/lows (using 60-bar lookback)
-
-**Key Point:** All swing points are confirmed using only historical data, with a natural delay for confirmation.
+**Key Benefits:**
+- **Immediate Context**: No waiting for future confirmation
+- **Rotation Capture**: Perfect for 4-5 point ES rotations
+- **No Data Leakage**: Uses only historical data through N-1
+- **Market Structure**: Captures recent support/resistance levels
 
 ### 4. Return Features (6 features)
 **Purpose:** Recent momentum at multiple timeframes
@@ -156,12 +161,12 @@ if check_idx >= 5:  # Need enough history
 
 ✅ **Volume features:** Only use historical rolling windows
 ✅ **Price context:** Only use session data up to current bar
-❌ **Swing features:** NEED TO FIX - currently looks forward
+✅ **Recent high/low features:** Only use historical lookback windows
 ✅ **Returns:** Only use historical price differences
 ✅ **Volatility:** Only use historical rolling calculations
 ✅ **Microstructure:** Only use current bar data
 ✅ **Time features:** Only use current timestamp
 
-## Critical Fix Needed: Swing Point Detection
+## ✅ All Features Now Safe From Data Leakage
 
-The swing point logic needs to be completely rewritten to avoid future data leakage.
+All feature categories now use only historical data through bar N-1 to predict bar N.

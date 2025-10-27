@@ -1,5 +1,6 @@
 import pandas as pd
-from project.data_pipeline.labeling import calculate_labels_for_all_profiles
+import time
+from simple_optimized_labeling import calculate_labels_for_all_profiles_optimized
 
 # Load the full dataset
 print("Loading full dataset...")
@@ -29,10 +30,15 @@ print(f"  Volume range: {df['volume'].min():,} - {df['volume'].max():,}")
 
 # Calculate labels for full dataset
 print(f"\n{'='*60}")
-print("CALCULATING LABELS FOR FULL DATASET")
+print("CALCULATING LABELS FOR FULL DATASET (OPTIMIZED)")
 print(f"{'='*60}")
 
-df_labeled = calculate_labels_for_all_profiles(df)
+start_time = time.time()
+df_labeled = calculate_labels_for_all_profiles_optimized(df)
+end_time = time.time()
+
+processing_time = end_time - start_time
+print(f"\n⏱️  Processing completed in {processing_time:.1f} seconds ({processing_time/60:.1f} minutes)")
 
 # Show results
 print(f"\n{'='*60}")
