@@ -1,4 +1,11 @@
+import sys
+import os
 import pandas as pd
+
+# Add project root to path
+project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+sys.path.insert(0, project_root)
+
 from project.data_pipeline.features import create_all_features
 
 # Load labeled test sample
@@ -18,7 +25,9 @@ print(f"NaN counts:")
 print(df_featured.isnull().sum().sort_values(ascending=False).head(20))
 
 print("\nSample features:")
-print(df_featured[['close', 'return_5s', 'vwap', 'distance_from_vwap', 'atr_30s', 'volume_ratio_30s']].head(20))
+sample_cols = ['close', 'vwap', 'distance_from_vwap_pct', 'atr_30s', 'volume_ratio_30s', 'return_30s']
+available_cols = [col for col in sample_cols if col in df_featured.columns]
+print(df_featured[available_cols].head(20))
 
 # Save
 df_featured.to_parquet('project/data/test/test_featured_1000.parquet')
