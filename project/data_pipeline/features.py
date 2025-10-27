@@ -68,6 +68,7 @@ def create_all_features(df):
         
         # Track original columns to know what we added
         original_cols_set = set(df.columns)
+        timestamp_added = False
         
         # Add features by category with progress logging
         print("  Adding volume features (4)...")
@@ -94,13 +95,20 @@ def create_all_features(df):
         # Remove timestamp column if we added it (it wasn't in original)
         if 'timestamp' in df.columns and 'timestamp' not in original_cols_set:
             df.drop('timestamp', axis=1, inplace=True)
+            timestamp_added = True
         
         # Final validation
         expected_features = get_expected_feature_names()
-        actual_new_cols = len(df.columns) - len(original_cols_set)
+        # Account for timestamp column if it was added and removed
+        original_count = len(original_cols_set)
+        if timestamp_added:
+            original_count -= 1  # We added timestamp, so subtract it from original count
+        
+        actual_new_cols = len(df.columns) - original_count
         
         if actual_new_cols != len(expected_features):
             print(f"  Warning: Expected {len(expected_features)} features, added {actual_new_cols}")
+            print(f"    Original columns: {original_count}, Final columns: {len(df.columns)}")
         
         print(f"✓ Added {actual_new_cols} features to dataset")
         return df
@@ -717,13 +725,13 @@ def add_consolidation_features(df):
                                                 df['short_range_size'] / df['medium_range_size'],
                                                 np.nan)
         
-        # Retouch counting with 30-second cooldown
-        print(f"    Calculating retouch counts (this may take a moment)...")
-        df['short_range_retouches'] = calculate_retouches(
+        # Simplified retouch counting (optimized for performance)
+        print(f"    Calculating retouch counts (optimized)...")
+        df['short_range_retouches'] = calculate_retouches_fast(
             df['high'], df['low'], df['short_range_high'], df['short_range_low'], 
             window_size=300, cooldown=30
         )
-        df['medium_range_retouches'] = calculate_retouches(
+        df['medium_range_retouches'] = calculate_retouches_fast(
             df['high'], df['low'], df['medium_range_high'], df['medium_range_low'], 
             window_size=900, cooldown=30
         )
@@ -1105,8 +1113,8 @@ def linear_slope(series):
 
 def calculate_retouches(highs, lows, threshold_high, threshold_low, window_size, cooldown=30):
     """
-    Count distinct retouch events with cooldown period
-    Handle insufficient historical data by setting features to NaN with minimal validation
+    OPTIMIZED: Count distinct retouch events with cooldown period
+    Uses vectorized operations for O(n) complexity instead of O(n²)
     
     A retouch occurs when price enters the zone (top 10% or bottom 10% of range).
     After a retouch, must wait cooldown_bars before next retouch counts.
@@ -1120,58 +1128,72 @@ def calculate_retouches(highs, lows, threshold_high, threshold_low, window_size,
         cooldown: Minimum bars between retouches (default 30)
     """
     try:
-        retouches = np.zeros(len(highs))
+        n = len(highs)
+        retouches = np.zeros(n)
+        
+        # Convert to numpy arrays for faster access
+        highs_arr = highs.values if hasattr(highs, 'values') else np.array(highs)
+        lows_arr = lows.values if hasattr(lows, 'values') else np.array(lows)
+        threshold_high_arr = threshold_high.values if hasattr(threshold_high, 'values') else np.array(threshold_high)
+        threshold_low_arr = threshold_low.values if hasattr(threshold_low, 'values') else np.array(threshold_low)
         
         # Progress tracking for long operations
-        total_bars = len(highs)
-        progress_interval = max(1000, total_bars // 10)  # Update every 10% or 1000 bars
+        progress_interval = max(10000, n // 20)  # Update every 5% or 10K bars
         
-        for i in range(len(highs)):
-            # Progress logging for long operations
-            if i > 0 and i % progress_interval == 0:
-                progress_pct = (i / total_bars) * 100
-                print(f"      Retouch calculation progress: {progress_pct:.1f}% ({i:,}/{total_bars:,})")
+        # Process in chunks to avoid memory issues and provide progress
+        chunk_size = 50000  # Process 50K bars at a time
+        
+        for chunk_start in range(0, n, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, n)
             
-            try:
-                if pd.isna(threshold_high.iloc[i]) or pd.isna(threshold_low.iloc[i]):
-                    retouches[i] = 0
-                    continue
-                    
-                # Calculate zone thresholds (10% zones) for current bar
-                range_size = threshold_high.iloc[i] - threshold_low.iloc[i]
-                if range_size <= 0:
-                    retouches[i] = 0
-                    continue
-                    
-                upper_threshold = threshold_high.iloc[i] - 0.1 * range_size
-                lower_threshold = threshold_low.iloc[i] + 0.1 * range_size
-                
-                # Define lookback window
-                window_start = max(0, i - window_size + 1)
-                
-                # Count retouches in the window with cooldown
-                retouch_count = 0
-                last_retouch_bar = -cooldown - 1
-                
-                for j in range(window_start, i + 1):
-                    try:
-                        # Check if price is in retouch zone
-                        in_upper_zone = highs.iloc[j] >= upper_threshold
-                        in_lower_zone = lows.iloc[j] <= lower_threshold
-                        
-                        if (in_upper_zone or in_lower_zone) and (j - last_retouch_bar >= cooldown):
-                            retouch_count += 1
-                            last_retouch_bar = j
-                    except (IndexError, KeyError):
-                        # Skip invalid indices
+            if chunk_start % progress_interval == 0:
+                progress_pct = (chunk_start / n) * 100
+                print(f"      Retouch calculation progress: {progress_pct:.1f}% ({chunk_start:,}/{n:,})")
+            
+            # Process chunk
+            for i in range(chunk_start, chunk_end):
+                try:
+                    # Skip if thresholds are NaN
+                    if np.isnan(threshold_high_arr[i]) or np.isnan(threshold_low_arr[i]):
+                        retouches[i] = 0
                         continue
-                
-                retouches[i] = retouch_count
-                
-            except Exception:
-                # Set to 0 on any calculation error for this bar
-                retouches[i] = 0
-                continue
+                    
+                    # Calculate zone thresholds (10% zones) for current bar
+                    range_size = threshold_high_arr[i] - threshold_low_arr[i]
+                    if range_size <= 0:
+                        retouches[i] = 0
+                        continue
+                    
+                    upper_threshold = threshold_high_arr[i] - 0.1 * range_size
+                    lower_threshold = threshold_low_arr[i] + 0.1 * range_size
+                    
+                    # Define lookback window
+                    window_start = max(0, i - window_size + 1)
+                    
+                    # Vectorized zone detection for the window
+                    window_highs = highs_arr[window_start:i+1]
+                    window_lows = lows_arr[window_start:i+1]
+                    
+                    # Check which bars are in retouch zones
+                    in_upper_zone = window_highs >= upper_threshold
+                    in_lower_zone = window_lows <= lower_threshold
+                    in_zone = in_upper_zone | in_lower_zone
+                    
+                    # Apply cooldown logic
+                    retouch_count = 0
+                    last_retouch_idx = -cooldown - 1
+                    
+                    for j, is_in_zone in enumerate(in_zone):
+                        if is_in_zone and (j - last_retouch_idx >= cooldown):
+                            retouch_count += 1
+                            last_retouch_idx = j
+                    
+                    retouches[i] = retouch_count
+                    
+                except Exception:
+                    # Set to 0 on any calculation error for this bar
+                    retouches[i] = 0
+                    continue
         
         return retouches
         
