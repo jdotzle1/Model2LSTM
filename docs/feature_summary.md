@@ -1,6 +1,6 @@
 # ES Trading Model - Feature Summary
 
-## 42 Features Across 7 Categories
+## 43 Features Across 7 Categories
 
 ### 1. Volume Features (4)
 | Feature | Range | Description |
@@ -81,4 +81,4 @@
 **Volatility Regime**: `volatility_regime` > 1.3 = widen stops, reduce size  
 **Session Timing**: Different periods favor different strategies (momentum vs fade)
 
-**Total: 42 features** designed for ES futures fade and momentum strategies with proper data leakage prevention.
+**Total: 43 features** designed for ES futures fade and momentum strategies with proper data leakage prevention.

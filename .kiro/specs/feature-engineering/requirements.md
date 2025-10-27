@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Implement a comprehensive feature engineering system for ES futures trading that generates 42 features across 7 categories as defined in #[[file:docs/feature_definitions.md]] and summarized in #[[file:docs/feature_summary.md]]. The system must process datasets ranging from 947K bars (laptop testing) to 88M bars (15 years of production data on SageMaker) while maintaining perfect data integrity, preventing future data leakage, and optimizing for LSTM model training. The resulting dataset will be used to train an LSTM neural network with 6 output heads (one for each trading profile) to predict optimal entry timing for ES futures trades.
+Implement a comprehensive feature engineering system for ES futures trading that generates 43 features across 7 categories as defined in #[[file:docs/feature_definitions.md]] and summarized in #[[file:docs/feature_summary.md]]. The system must process datasets ranging from 947K bars (laptop testing) to 88M bars (15 years of production data on SageMaker) while maintaining perfect data integrity, preventing future data leakage, and optimizing for LSTM model training. The resulting dataset will be used to train an LSTM neural network with 6 output heads (one for each trading profile) to predict optimal entry timing for ES futures trades.
 
 ## Glossary
 
@@ -29,12 +29,12 @@ Implement a comprehensive feature engineering system for ES futures trading that
 
 1. THE Feature Engineering System SHALL process 947,004 bars in under 10 minutes on a standard laptop
 2. THE Feature Engineering System SHALL process 88,000,000 bars in under 4 hours on Amazon SageMaker
-3. THE Feature Engineering System SHALL implement chunked processing for memory efficiency on large datasets
+3. THE Feature Engineering System SHALL implement minimal viable code with direct pandas operations for maximum simplicity
 4. THE Feature Engineering System SHALL validate that all input data contains no missing OHLCV values before processing
 5. THE Feature Engineering System SHALL produce identical results when run multiple times on the same dataset
 6. THE Feature Engineering System SHALL handle edge cases where insufficient historical data exists for rolling calculations
-7. THE Feature Engineering System SHALL provide progress tracking with estimated completion times for long-running operations
-8. THE Feature Engineering System SHALL implement checkpointing to resume processing after interruptions
+7. THE Feature Engineering System SHALL provide basic progress tracking with simple print statements
+8. THE Feature Engineering System SHALL implement the entire feature engineering module in under 400 lines of code while prioritizing code clarity and correctness
 
 ### Requirement 2: Data Leakage Prevention
 
@@ -139,24 +139,24 @@ Implement a comprehensive feature engineering system for ES futures trading that
 #### Acceptance Criteria
 
 1. THE Feature Engineering System SHALL accept the existing labeled dataset as input (39 columns including labels)
-2. THE Feature Engineering System SHALL add 42 feature columns to the existing dataset structure
+2. THE Feature Engineering System SHALL add 43 feature columns to the existing dataset structure
 3. THE Feature Engineering System SHALL preserve all existing label columns and metadata
 4. THE Feature Engineering System SHALL ensure feature column names match exactly the names defined in #[[file:docs/feature_definitions.md]]
 5. THE Feature Engineering System SHALL validate that feature values fall within expected ranges as documented
 6. THE Feature Engineering System SHALL provide summary statistics for all generated features
-7. THE Feature Engineering System SHALL save the enhanced dataset in Parquet format with 81 total columns (39 existing + 42 features)
+7. THE Feature Engineering System SHALL save the enhanced dataset in Parquet format with 82 total columns (39 existing + 43 features)
 
 ### Requirement 11: Error Handling and Edge Cases
 
-**User Story:** As a system operator, I want robust error handling that gracefully manages edge cases and provides clear diagnostic information, so that I can troubleshoot issues and ensure system reliability.
+**User Story:** As a system operator, I want minimal but effective error handling that manages edge cases without over-engineering, so that I can troubleshoot issues while maintaining code simplicity.
 
 #### Acceptance Criteria
 
-1. THE Feature Engineering System SHALL handle insufficient historical data by setting features to NaN with clear documentation
-2. THE Feature Engineering System SHALL validate input data quality and report any anomalies before processing
-3. THE Feature Engineering System SHALL provide detailed error messages that specify the exact location and nature of any failures
-4. THE Feature Engineering System SHALL implement comprehensive logging for debugging and monitoring
-5. THE Feature Engineering System SHALL continue processing when encountering non-critical errors while logging warnings
+1. THE Feature Engineering System SHALL handle insufficient historical data by setting features to NaN with minimal validation
+2. THE Feature Engineering System SHALL validate basic input data quality (non-empty dataframe, required columns present)
+3. THE Feature Engineering System SHALL provide simple error messages for critical failures only
+4. THE Feature Engineering System SHALL implement basic progress logging using print statements
+5. THE Feature Engineering System SHALL fail fast on critical errors rather than implementing complex recovery logic
 
 ### Requirement 12: LSTM Model Training Optimization
 
@@ -202,14 +202,12 @@ Implement a comprehensive feature engineering system for ES futures trading that
 
 ### Requirement 15: Testing and Validation Framework
 
-**User Story:** As a quality assurance engineer, I want comprehensive testing that validates feature accuracy across different scales and prevents regressions, so that I can ensure the system meets all specifications from laptop to production.
+**User Story:** As a quality assurance engineer, I want minimal but effective testing that validates core feature accuracy without over-engineering, so that I can ensure the system works correctly with simple verification.
 
 #### Acceptance Criteria
 
-1. THE Feature Engineering System SHALL include unit tests for each feature category with known input/output pairs
-2. THE Feature Engineering System SHALL include integration tests that validate end-to-end processing on sample data
-3. THE Feature Engineering System SHALL include data leakage tests that verify no future data is used in calculations
-4. THE Feature Engineering System SHALL include performance tests that validate processing time requirements on both laptop and SageMaker
-5. THE Feature Engineering System SHALL include regression tests that detect changes in feature calculations between versions
-6. THE Feature Engineering System SHALL include scaling tests that validate identical results between laptop and SageMaker processing
-7. THE Feature Engineering System SHALL include memory usage tests to prevent out-of-memory errors on large datasets
+1. THE Feature Engineering System SHALL include basic unit tests for each feature category with simple input/output validation
+2. THE Feature Engineering System SHALL include one integration test that validates end-to-end processing on sample data
+3. THE Feature Engineering System SHALL include basic data leakage tests that verify no future data is used in calculations
+4. THE Feature Engineering System SHALL include simple performance validation on laptop processing time
+5. THE Feature Engineering System SHALL implement all testing in a single test file under 200 lines of code

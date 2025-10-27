@@ -15,7 +15,7 @@ Bar 101+: [future] - cannot use this data
 
 **Features for predicting bar 100 use only bars 0-99**
 
-## Feature Categories (55 Total Features)
+## Feature Categories (43 Total Features)
 
 ### 1. Volume Features (4 features)
 **Purpose:** Detect volume exhaustion patterns and breakout quality in ES futures
@@ -160,7 +160,7 @@ distance_from_rth_high = -0.25    # Very close to session high
 - **Session extremes** - RTH high/low provide key resistance/support levels
 - **Complementary to recent highs/lows** - Session levels for major S/R, recent levels for rotations
 
-### 3. Consolidation & Range Features (8 features)
+### 3. Consolidation & Range Features (10 features)
 **Purpose:** Identify consolidation patterns across multiple timeframes with proper retouch counting
 
 **Core Strategy:** Compare short-term vs medium-term consolidation patterns for fade setups
