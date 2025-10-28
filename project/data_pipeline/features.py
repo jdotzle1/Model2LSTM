@@ -705,20 +705,20 @@ def add_consolidation_features(df):
                                                 df['short_range_size'] / df['medium_range_size'],
                                                 np.nan)
         
-        # Simple proximity to range extremes (much faster than retouch counting)
-        range_threshold = 0.1  # Within 10% of range extremes
+        # Proximity to range extremes - check if close price is in extreme zones
+        range_threshold = 0.05  # Within 5% of range extremes (more restrictive)
         
-        # Short range proximity
-        short_upper_zone = df['short_range_high'] - (df['short_range_size'] * range_threshold)
-        short_lower_zone = df['short_range_low'] + (df['short_range_size'] * range_threshold)
-        df['short_range_retouches'] = ((df['high'] >= short_upper_zone) | 
-                                      (df['low'] <= short_lower_zone)).astype(int)
+        # Short range proximity - use close price position
+        short_upper_threshold = df['short_range_high'] - (df['short_range_size'] * range_threshold)
+        short_lower_threshold = df['short_range_low'] + (df['short_range_size'] * range_threshold)
+        df['short_range_retouches'] = ((df['close'] >= short_upper_threshold) | 
+                                      (df['close'] <= short_lower_threshold)).astype(int)
         
-        # Medium range proximity  
-        medium_upper_zone = df['medium_range_high'] - (df['medium_range_size'] * range_threshold)
-        medium_lower_zone = df['medium_range_low'] + (df['medium_range_size'] * range_threshold)
-        df['medium_range_retouches'] = ((df['high'] >= medium_upper_zone) | 
-                                       (df['low'] <= medium_lower_zone)).astype(int)
+        # Medium range proximity - use close price position
+        medium_upper_threshold = df['medium_range_high'] - (df['medium_range_size'] * range_threshold)
+        medium_lower_threshold = df['medium_range_low'] + (df['medium_range_size'] * range_threshold)
+        df['medium_range_retouches'] = ((df['close'] >= medium_upper_threshold) | 
+                                       (df['close'] <= medium_lower_threshold)).astype(int)
         
         return df
         
