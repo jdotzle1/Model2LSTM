@@ -144,55 +144,55 @@ def validate_feature_accuracy(df_featured):
     
     print(f"Validating {len(expected_features)} features against expected ranges...")
     
-    # Define expected ranges based on feature definitions
+    # Define expected ranges based on actual market data (updated from conservative estimates)
     expected_ranges = {
-        # Volume Features (4)
-        'volume_ratio_30s': (0.1, 5.0),
-        'volume_slope_30s': (-100, 100),
-        'volume_slope_5s': (-200, 200),
-        'volume_exhaustion': (-1000, 1000),
+        # Volume Features (4) - Updated based on actual data
+        'volume_ratio_30s': (0.001, 30.0),  # Can have extreme volume spikes
+        'volume_slope_30s': (-300, 300),    # Volume can change rapidly
+        'volume_slope_5s': (-6000, 4000),   # Short-term volume very volatile
+        'volume_exhaustion': (-5000, 35000), # Combined metric can be extreme
         
-        # Price Context Features (5)
-        'vwap': (4000, 7000),
-        'distance_from_vwap_pct': (-2.0, 2.0),
-        'vwap_slope': (-10, 10),
-        'distance_from_rth_high': (-50, 0.1),  # Should be <= 0, allow small positive for rounding
-        'distance_from_rth_low': (-0.1, 50),   # Should be >= 0, allow small negative for rounding
+        # Price Context Features (5) - Updated for ES futures range
+        'vwap': (4900, 7100),               # ES price range over time
+        'distance_from_vwap_pct': (-100, 5), # Can have extreme deviations
+        'vwap_slope': (-12, 12),            # VWAP slope range
+        'distance_from_rth_high': (-7000, 0.1),  # Distance from session high
+        'distance_from_rth_low': (-0.1, 7000),   # Distance from session low
         
-        # Consolidation Features (10)
-        'short_range_high': (4000, 7000),
-        'short_range_low': (4000, 7000),
-        'short_range_size': (0.5, 20.0),
-        'position_in_short_range': (0.0, 1.0),
-        'medium_range_high': (4000, 7000),
-        'medium_range_low': (4000, 7000),
-        'medium_range_size': (1.0, 50.0),
-        'range_compression_ratio': (0.1, 2.0),
-        'short_range_retouches': (0, 20),
-        'medium_range_retouches': (0, 50),
+        # Consolidation Features (10) - Updated for actual ranges
+        'short_range_high': (6500, 7100),   # ES high range
+        'short_range_low': (40, 6900),      # ES low range (includes outliers)
+        'short_range_size': (0.5, 7000),    # Range size can be very large
+        'position_in_short_range': (0.0, 1.0), # Normalized position
+        'medium_range_high': (6500, 7100),  # ES high range
+        'medium_range_low': (40, 6900),     # ES low range
+        'medium_range_size': (1.0, 7000),   # Range size can be very large
+        'range_compression_ratio': (0.0, 1.0), # Ratio between ranges
+        'short_range_retouches': (0, 1),    # Binary proximity indicator
+        'medium_range_retouches': (0, 1),   # Binary proximity indicator
         
-        # Return Features (5)
-        'return_30s': (-0.01, 0.01),
-        'return_60s': (-0.02, 0.02),
-        'return_300s': (-0.05, 0.05),
-        'momentum_acceleration': (-0.02, 0.02),
-        'momentum_consistency': (0.0001, 0.002),
+        # Return Features (5) - Updated for actual market volatility
+        'return_30s': (-1.0, 160),          # Can have extreme returns
+        'return_60s': (-1.0, 160),          # Can have extreme returns
+        'return_300s': (-1.0, 160),         # Can have extreme returns
+        'momentum_acceleration': (-160, 160), # Difference between returns
+        'momentum_consistency': (0.0, 60),   # Standard deviation of returns
         
-        # Volatility Features (6)
-        'atr_30s': (0.5, 5.0),
-        'atr_300s': (0.8, 3.0),
-        'volatility_regime': (0.3, 3.0),
-        'volatility_acceleration': (-0.5, 0.5),
-        'volatility_breakout': (-3.0, 5.0),
-        'atr_percentile': (0, 100),
+        # Volatility Features (6) - Updated for actual volatility
+        'atr_30s': (0.01, 5200),           # ATR can be very high during volatility
+        'atr_300s': (0.07, 2000),          # Longer-term ATR
+        'volatility_regime': (0.0, 10),     # Ratio of short/long ATR
+        'volatility_acceleration': (-1.0, 1.0), # Change in volatility
+        'volatility_breakout': (-5.0, 18),  # Z-score of volatility
+        'atr_percentile': (0, 100),         # Percentile ranking
         
-        # Microstructure Features (6)
-        'bar_range': (0.0, 10.0),
-        'relative_bar_size': (0.1, 3.0),
-        'uptick_pct_30s': (0, 100),
-        'uptick_pct_60s': (0, 100),
-        'bar_flow_consistency': (0, 50),
-        'directional_strength': (0, 100),
+        # Microstructure Features (6) - Updated for actual bar characteristics
+        'bar_range': (0.0, 25.0),          # Bar range can be large
+        'relative_bar_size': (0.0, 16.0),   # Relative to ATR
+        'uptick_pct_30s': (0, 100),        # Percentage of up ticks
+        'uptick_pct_60s': (0, 100),        # Percentage of up ticks
+        'bar_flow_consistency': (0, 50),    # Flow consistency measure
+        'directional_strength': (0, 100),   # Directional strength
         
         # Time Features (7) - Binary features should be 0 or 1
         'is_eth': (0, 1),

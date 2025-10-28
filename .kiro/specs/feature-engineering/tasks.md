@@ -164,6 +164,14 @@
 
 
 
+
+
+
+
+
+
+
+
   - Test processing time on 947K bar dataset to ensure under 10 minutes on laptop
   - Validate feature calculation accuracy against known expected ranges
   - Ensure memory usage stays reasonable during processing
