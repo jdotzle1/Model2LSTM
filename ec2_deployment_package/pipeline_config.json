@@ -1,0 +1,58 @@
+{
+  "pipeline_version": "2.0_weighted_labeling",
+  "ec2_instance_type": "c5.4xlarge",
+  "recommended_specs": {
+    "cpu_cores": 16,
+    "memory_gb": 32,
+    "storage_gb": 100
+  },
+  "s3_configuration": {
+    "bucket": "${S3_BUCKET}",
+    "dbn_prefix": "raw/dbn/",
+    "output_prefix": "processed/weighted_labeling/"
+  },
+  "processing_configuration": {
+    "chunk_size": 500000,
+    "timeout_seconds": 900,
+    "performance_target_rows_per_minute": 167000,
+    "memory_limit_gb": 8.0
+  },
+  "trading_modes": [
+    {
+      "name": "low_vol_long",
+      "stop_ticks": 6,
+      "target_ticks": 12,
+      "direction": "long"
+    },
+    {
+      "name": "normal_vol_long",
+      "stop_ticks": 8,
+      "target_ticks": 16,
+      "direction": "long"
+    },
+    {
+      "name": "high_vol_long",
+      "stop_ticks": 10,
+      "target_ticks": 20,
+      "direction": "long"
+    },
+    {
+      "name": "low_vol_short",
+      "stop_ticks": 6,
+      "target_ticks": 12,
+      "direction": "short"
+    },
+    {
+      "name": "normal_vol_short",
+      "stop_ticks": 8,
+      "target_ticks": 16,
+      "direction": "short"
+    },
+    {
+      "name": "high_vol_short",
+      "stop_ticks": 10,
+      "target_ticks": 20,
+      "direction": "short"
+    }
+  ]
+}

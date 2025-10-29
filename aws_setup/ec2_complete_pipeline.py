@@ -24,6 +24,10 @@ from pathlib import Path
 import argparse
 from datetime import datetime
 
+# Add project root to path for imports
+project_root = os.path.join(os.path.dirname(__file__), '..')
+sys.path.insert(0, project_root)
+
 # Configuration
 S3_BUCKET = os.environ.get('S3_BUCKET', 'your-es-data-bucket')
 S3_DBN_PREFIX = os.environ.get('S3_DBN_PREFIX', 'raw/dbn/')
@@ -192,31 +196,60 @@ def apply_weighted_labeling(df):
     print("\n=== STEP 4: APPLYING WEIGHTED LABELING ===")
     
     # Import the new weighted labeling system
-    # This will be implemented in the tasks
     print("  Loading weighted labeling system...")
     
-    # Placeholder for actual implementation
-    print("  Processing 6 trading modes...")
-    print("    - low_vol_long")
-    print("    - normal_vol_long") 
-    print("    - high_vol_long")
-    print("    - low_vol_short")
-    print("    - normal_vol_short")
-    print("    - high_vol_short")
+    # Add project root to path for imports
+    import sys
+    import os
+    project_root = os.path.join(os.path.dirname(__file__), '..')
+    sys.path.insert(0, project_root)
     
-    # TODO: Replace with actual weighted labeling implementation
-    # from weighted_labeling_system import WeightedLabelingEngine
-    # engine = WeightedLabelingEngine()
-    # df_labeled = engine.process_dataframe(df)
+    from project.data_pipeline.weighted_labeling import process_weighted_labeling, LabelingConfig
     
-    # For now, return original df with placeholder columns
+    print("  Processing 6 volatility-based trading modes...")
+    print("    - low_vol_long (6 stop / 12 target ticks)")
+    print("    - normal_vol_long (8 stop / 16 target ticks)") 
+    print("    - high_vol_long (10 stop / 20 target ticks)")
+    print("    - low_vol_short (6 stop / 12 target ticks)")
+    print("    - normal_vol_short (8 stop / 16 target ticks)")
+    print("    - high_vol_short (10 stop / 20 target ticks)")
+    
+    # Configure for EC2 processing (enable performance monitoring)
+    config = LabelingConfig(
+        chunk_size=500_000,  # 500K rows per chunk for EC2
+        enable_performance_monitoring=True,
+        enable_progress_tracking=True,
+        enable_memory_optimization=True
+    )
+    
+    # Apply weighted labeling
+    df_labeled = process_weighted_labeling(df, config)
+    
+    # Validate results
+    expected_columns = []
     for mode in ['low_vol_long', 'normal_vol_long', 'high_vol_long', 
                  'low_vol_short', 'normal_vol_short', 'high_vol_short']:
-        df[f'label_{mode}'] = 0  # Placeholder
-        df[f'weight_{mode}'] = 1.0  # Placeholder
+        expected_columns.extend([f'label_{mode}', f'weight_{mode}'])
     
+    missing_columns = set(expected_columns) - set(df_labeled.columns)
+    if missing_columns:
+        raise ProcessingError(f"Missing expected columns: {missing_columns}")
+    
+    # Print labeling statistics
     print(f"✓ Added 12 new columns (6 labels + 6 weights)")
-    return df
+    print(f"  Dataset size: {len(df_labeled):,} rows × {len(df_labeled.columns)} columns")
+    
+    # Show win rates for each mode
+    print("  Win rates by mode:")
+    for mode in ['low_vol_long', 'normal_vol_long', 'high_vol_long', 
+                 'low_vol_short', 'normal_vol_short', 'high_vol_short']:
+        label_col = f'label_{mode}'
+        weight_col = f'weight_{mode}'
+        win_rate = df_labeled[label_col].mean()
+        avg_weight = df_labeled[weight_col].mean()
+        print(f"    {mode}: {win_rate:.1%} win rate, avg weight: {avg_weight:.3f}")
+    
+    return df_labeled
 
 def engineer_features(df):
     """Engineer 43 features"""
@@ -225,11 +258,14 @@ def engineer_features(df):
     # Import existing feature engineering
     print("  Loading feature engineering system...")
     
-    # TODO: Use existing feature engineering system
-    # from project.data_pipeline.features import create_all_features
-    # df_featured = create_all_features(df)
+    # Add project root to path for imports
+    import sys
+    import os
+    project_root = os.path.join(os.path.dirname(__file__), '..')
+    sys.path.insert(0, project_root)
     
-    # For now, return original df
+    from project.data_pipeline.features import create_all_features, get_expected_feature_names
+    
     print("  Adding 43 engineered features...")
     print("    - Volume features (4)")
     print("    - Price context features (5)")
@@ -239,72 +275,164 @@ def engineer_features(df):
     print("    - Microstructure features (6)")
     print("    - Time features (7)")
     
+    # Apply feature engineering (handles chunking automatically for large datasets)
+    df_featured = create_all_features(df)
+    
+    # Validate feature engineering results
+    expected_features = get_expected_feature_names()
+    expected_feature_count = len(expected_features)
+    
+    # Count original columns (OHLCV + timestamp if present)
+    original_columns = ['open', 'high', 'low', 'close', 'volume']
+    if 'timestamp' in df.columns:
+        original_columns.append('timestamp')
+    
+    # Count label/weight columns (new weighted labeling system)
+    label_weight_columns = [col for col in df.columns if col.startswith(('label_', 'weight_'))]
+    
+    expected_total_columns = len(original_columns) + len(label_weight_columns) + expected_feature_count
+    
+    # Check for missing features
+    missing_features = set(expected_features) - set(df_featured.columns)
+    if missing_features:
+        print(f"  Warning: Missing expected features: {missing_features}")
+    
+    # Validate column count
+    actual_columns = len(df_featured.columns)
+    if actual_columns != expected_total_columns:
+        print(f"  Column count: Expected {expected_total_columns}, got {actual_columns}")
+        print(f"    Original OHLCV: {len(original_columns)}")
+        print(f"    Labels/Weights: {len(label_weight_columns)}")
+        print(f"    Features: {actual_columns - len(original_columns) - len(label_weight_columns)}")
+    else:
+        print(f"  ✓ Column validation passed: {actual_columns} columns")
+    
+    # Validate that new weighted labeling columns are preserved
+    preserved_label_weight_cols = [col for col in df_featured.columns if col.startswith(('label_', 'weight_'))]
+    if len(preserved_label_weight_cols) != len(label_weight_columns):
+        missing_lw_cols = set(label_weight_columns) - set(preserved_label_weight_cols)
+        print(f"  Warning: Missing label/weight columns: {missing_lw_cols}")
+    
     print(f"✓ Feature engineering complete")
-    return df
+    print(f"  Final dataset: {len(df_featured):,} rows × {len(df_featured.columns)} columns")
+    print(f"  Ready for XGBoost training with weighted labels")
+    
+    return df_featured
 
 def train_xgboost_models(df):
-    """Train 6 XGBoost models"""
+    """Train 6 XGBoost models using weighted binary classification"""
     print("\n=== STEP 6: TRAINING XGBOOST MODELS ===")
     
     import xgboost as xgb
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import roc_auc_score, classification_report
     
-    # Feature columns (exclude OHLCV and label/weight columns)
-    feature_cols = [col for col in df.columns if col not in 
-                   ['open', 'high', 'low', 'close', 'volume'] and 
-                   not col.startswith(('label_', 'weight_'))]
+    # Feature columns (exclude OHLCV, timestamp, and label/weight columns)
+    exclude_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    exclude_cols.extend([col for col in df.columns if col.startswith(('label_', 'weight_'))])
+    
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
     
     print(f"  Training with {len(feature_cols)} features")
+    print(f"  Dataset size: {len(df):,} rows")
     
     models = {}
     trading_modes = ['low_vol_long', 'normal_vol_long', 'high_vol_long',
                     'low_vol_short', 'normal_vol_short', 'high_vol_short']
     
+    # Chronological split (80% train, 20% test)
+    split_idx = int(len(df) * 0.8)
+    
     for i, mode in enumerate(trading_modes, 1):
         print(f"  [{i}/6] Training {mode} model...")
         
-        # Prepare data
+        # Prepare data for this mode
         X = df[feature_cols]
         y = df[f'label_{mode}']
         sample_weights = df[f'weight_{mode}']
         
-        # Train/test split (chronological)
-        split_idx = int(len(df) * 0.8)
+        # Chronological split (no shuffling for time series)
         X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
         y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
         w_train, w_test = sample_weights.iloc[:split_idx], sample_weights.iloc[split_idx:]
         
-        # Train XGBoost model
-        model = xgb.XGBClassifier(
-            objective='binary:logistic',
-            eval_metric='auc',
-            max_depth=6,
-            eta=0.1,
-            n_estimators=1000,
-            random_state=42,
-            n_jobs=-1
-        )
+        # Validate data quality
+        if y_train.isna().any() or w_train.isna().any():
+            print(f"    Warning: NaN values found in {mode} labels or weights")
+            # Remove NaN rows
+            valid_mask = ~(y_train.isna() | w_train.isna())
+            X_train = X_train[valid_mask]
+            y_train = y_train[valid_mask]
+            w_train = w_train[valid_mask]
+        
+        # Check class balance
+        win_rate = y_train.mean()
+        total_samples = len(y_train)
+        winners = (y_train == 1).sum()
+        losers = (y_train == 0).sum()
+        
+        print(f"    Data: {total_samples:,} samples, {winners:,} winners ({win_rate:.1%}), {losers:,} losers")
+        
+        # XGBoost parameters optimized for trading data
+        xgb_params = {
+            'objective': 'binary:logistic',
+            'eval_metric': 'auc',
+            'tree_method': 'hist',  # Fast for large datasets
+            'max_depth': 6,
+            'min_child_weight': 1,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'eta': 0.1,
+            'n_estimators': 1000,
+            'reg_alpha': 0.1,
+            'reg_lambda': 1.0,
+            'random_state': 42,
+            'n_jobs': -1,
+            'verbosity': 0
+        }
+        
+        # Train XGBoost model with sample weights
+        model = xgb.XGBClassifier(**xgb_params)
         
         model.fit(
             X_train, y_train,
-            sample_weight=w_train,
+            sample_weight=w_train,  # Use weighted training
             eval_set=[(X_test, y_test)],
-            eval_sample_weight=[w_test],
+            eval_sample_weight=[w_test],  # Weighted validation
             early_stopping_rounds=50,
             verbose=False
         )
         
-        # Evaluate
+        # Evaluate model performance
         test_pred = model.predict_proba(X_test)[:, 1]
         test_auc = roc_auc_score(y_test, test_pred, sample_weight=w_test)
-        win_rate = y_train.mean()
         
-        print(f"    Test AUC: {test_auc:.4f}, Win Rate: {win_rate:.3f}")
+        # Weight statistics
+        avg_winner_weight = w_train[y_train == 1].mean()
+        avg_loser_weight = w_train[y_train == 0].mean()
         
-        models[mode] = model
+        print(f"    Weighted Test AUC: {test_auc:.4f}")
+        print(f"    Win Rate: {win_rate:.3f}")
+        print(f"    Avg Winner Weight: {avg_winner_weight:.3f}")
+        print(f"    Avg Loser Weight: {avg_loser_weight:.3f}")
+        
+        # Store model with metadata
+        models[mode] = {
+            'model': model,
+            'test_auc': test_auc,
+            'win_rate': win_rate,
+            'feature_importance': dict(zip(feature_cols, model.feature_importances_)),
+            'training_samples': total_samples,
+            'avg_winner_weight': avg_winner_weight,
+            'avg_loser_weight': avg_loser_weight
+        }
     
     print(f"✓ Trained {len(models)} XGBoost models")
+    
+    # Print summary statistics
+    print(f"\n  Model Performance Summary:")
+    for mode, model_info in models.items():
+        print(f"    {mode}: AUC={model_info['test_auc']:.4f}, WinRate={model_info['win_rate']:.3f}")
+    
     return models
 
 def save_results(df, models):
@@ -321,31 +449,75 @@ def save_results(df, models):
     print(f"  Uploading dataset to s3://{S3_BUCKET}/{s3_dataset_key}")
     s3.upload_file(dataset_path, S3_BUCKET, s3_dataset_key)
     
-    # Save models
+    # Save models and metadata
     import joblib
+    import json
     
-    for mode, model in models.items():
+    model_metadata = {}
+    
+    for mode, model_info in models.items():
+        # Save model
         model_path = os.path.join(LOCAL_WORK_DIR, f'{mode}_model.pkl')
-        joblib.dump(model, model_path)
+        joblib.dump(model_info['model'], model_path)
         
         s3_model_key = f"{S3_OUTPUT_PREFIX}models/{mode}_model.pkl"
         print(f"  Uploading {mode} model to s3://{S3_BUCKET}/{s3_model_key}")
         s3.upload_file(model_path, S3_BUCKET, s3_model_key)
+        
+        # Save model metadata
+        model_metadata[mode] = {
+            'test_auc': model_info['test_auc'],
+            'win_rate': model_info['win_rate'],
+            'training_samples': model_info['training_samples'],
+            'avg_winner_weight': model_info['avg_winner_weight'],
+            'avg_loser_weight': model_info['avg_loser_weight'],
+            's3_location': f"s3://{S3_BUCKET}/{s3_model_key}"
+        }
+        
+        # Save feature importance
+        importance_path = os.path.join(LOCAL_WORK_DIR, f'{mode}_feature_importance.json')
+        with open(importance_path, 'w') as f:
+            json.dump(model_info['feature_importance'], f, indent=2)
+        
+        s3_importance_key = f"{S3_OUTPUT_PREFIX}models/{mode}_feature_importance.json"
+        s3.upload_file(importance_path, S3_BUCKET, s3_importance_key)
     
-    # Save metadata
+    # Save comprehensive metadata
     metadata = {
-        'dataset_rows': len(df),
-        'dataset_columns': len(df.columns),
-        'models_trained': list(models.keys()),
-        'processing_date': datetime.now().isoformat(),
-        'instance_type': 'c5.4xlarge',
+        'pipeline_version': '2.0_weighted_labeling',
+        'dataset_info': {
+            'rows': len(df),
+            'columns': len(df.columns),
+            'date_range': {
+                'start': str(df.index.min()) if hasattr(df.index, 'min') else 'unknown',
+                'end': str(df.index.max()) if hasattr(df.index, 'max') else 'unknown'
+            },
+            'labeling_system': 'weighted_volatility_based',
+            'feature_count': len([col for col in df.columns if col not in 
+                                ['timestamp', 'open', 'high', 'low', 'close', 'volume'] and 
+                                not col.startswith(('label_', 'weight_'))])
+        },
+        'models': model_metadata,
+        'processing_info': {
+            'date': datetime.now().isoformat(),
+            'instance_type': 'c5.4xlarge',
+            'pipeline_steps': [
+                'dbn_download',
+                'dbn_to_parquet_conversion',
+                'parquet_combination',
+                'weighted_labeling',
+                'feature_engineering',
+                'xgboost_training',
+                'results_upload'
+            ]
+        },
         's3_locations': {
             'dataset': f"s3://{S3_BUCKET}/{s3_dataset_key}",
-            'models': f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}models/"
+            'models': f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}models/",
+            'feature_importance': f"s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}models/*_feature_importance.json"
         }
     }
     
-    import json
     metadata_path = os.path.join(LOCAL_WORK_DIR, 'pipeline_metadata.json')
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -354,6 +526,10 @@ def save_results(df, models):
     s3.upload_file(metadata_path, S3_BUCKET, s3_metadata_key)
     
     print(f"✓ Results saved to S3")
+    print(f"  Dataset: s3://{S3_BUCKET}/{s3_dataset_key}")
+    print(f"  Models: s3://{S3_BUCKET}/{S3_OUTPUT_PREFIX}models/")
+    print(f"  Metadata: s3://{S3_BUCKET}/{s3_metadata_key}")
+    
     return metadata
 
 def main():

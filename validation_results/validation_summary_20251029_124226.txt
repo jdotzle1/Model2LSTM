@@ -1,0 +1,40 @@
+WEIGHTED LABELING VALIDATION SUMMARY
+==================================================
+
+Validation Date: 2025-10-29 12:42:26
+Input File: project\data\test\weighted_labeling_test_results.parquet
+Dataset Size: 1,000 rows, 23 columns
+
+Overall Validation: FAILED
+
+Individual Validations:
+  Label validation: FAILED
+  Weight validation: PASSED
+  Data quality: PASSED
+  XGBoost ready: YES
+
+Mode-Specific Results:
+  low_vol_long:
+    Win rate: 67.1%
+    Samples: 1,000
+    Validation: FAILED
+  normal_vol_long:
+    Win rate: 71.6%
+    Samples: 1,000
+    Validation: FAILED
+  high_vol_long:
+    Win rate: 72.7%
+    Samples: 1,000
+    Validation: FAILED
+  low_vol_short:
+    Win rate: 4.0%
+    Samples: 1,000
+    Validation: FAILED
+  normal_vol_short:
+    Win rate: 4.0%
+    Samples: 1,000
+    Validation: FAILED
+  high_vol_short:
+    Win rate: 4.0%
+    Samples: 1,000
+    Validation: FAILED

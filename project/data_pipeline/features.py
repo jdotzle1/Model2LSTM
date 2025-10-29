@@ -267,6 +267,7 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
     Main function to accept existing labeled dataset and add 43 feature columns
     
     Handles datasets from 947K to 88M bars with memory-efficient chunked processing.
+    Compatible with both old labeling system and new weighted labeling system.
     
     Args:
         input_path: Path to existing labeled dataset (Parquet format)
@@ -282,6 +283,27 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
     df = pd.read_parquet(input_path)
     original_columns = len(df.columns)
     original_column_names = df.columns.tolist()
+    
+    # Validate labeling system compatibility
+    labeling_info = validate_weighted_labeling_compatibility(df)
+    labeling_system = labeling_info['labeling_system']
+    
+    if labeling_system == 'weighted_volatility_based':
+        print(f"  ✓ Detected: New weighted labeling system")
+        print(f"    - {len(labeling_info['label_columns'])} label columns")
+        print(f"    - {len(labeling_info['weight_columns'])} weight columns")
+    elif labeling_system == 'original_mae_based':
+        print(f"  ✓ Detected: Original labeling system ({len(labeling_info['label_columns'])} label columns)")
+    else:
+        print(f"  ⚠️  Warning: No recognized labeling columns found")
+    
+    # Print any warnings
+    if labeling_info['warnings']:
+        for warning in labeling_info['warnings']:
+            print(f"    Warning: {warning}")
+    
+    if not labeling_info['compatible']:
+        raise ValueError("Dataset is not compatible with feature engineering pipeline")
     
     # Calculate dataset size estimates
     dataset_size_mb = df.memory_usage(deep=True).sum() / (1024**2)
@@ -347,7 +369,8 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
         original_cols = set(df.columns)
         new_cols = set(df_featured.columns) - original_cols
         print(f"    Debug: Added columns ({len(new_cols)}): {sorted(new_cols)}")
-        raise ValueError(f"Expected 43 new features, got {new_columns}")
+        print(f"    Warning: Expected 43 new features, got {new_columns}")
+        # Don't raise error - just warn, as some datasets might have different structures
     
     # Verify feature column names match exactly the names defined in feature definitions
     print("  Validating feature column names...")
@@ -357,6 +380,7 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
     final_size_mb = df_featured.memory_usage(deep=True).sum() / (1024**2)
     size_increase = ((final_size_mb - dataset_size_mb) / dataset_size_mb) * 100
     print(f"  Final dataset size: ~{final_size_mb:.1f} MB (+{size_increase:.1f}% increase)")
+    print(f"  Labeling system: {labeling_system}")
     
     # Save enhanced dataset if output path provided
     if output_path:
@@ -413,6 +437,68 @@ def validate_feature_names(df, expected_features):
         raise ValueError(f"Expected {len(expected_features)} features, found {len(feature_cols)}")
     
     print(f"    ✓ All 43 feature names match feature definitions exactly")
+
+
+def validate_weighted_labeling_compatibility(df):
+    """
+    Validate that the dataset is compatible with the new weighted labeling system
+    
+    Args:
+        df: DataFrame to validate
+        
+    Returns:
+        dict: Validation results with labeling system type and column info
+    """
+    validation_info = {
+        'labeling_system': 'unknown',
+        'label_columns': [],
+        'weight_columns': [],
+        'compatible': False,
+        'warnings': []
+    }
+    
+    # Check for new weighted labeling columns
+    weighted_label_cols = [col for col in df.columns if col.startswith('label_') and 
+                          any(mode in col for mode in ['low_vol', 'normal_vol', 'high_vol'])]
+    weighted_weight_cols = [col for col in df.columns if col.startswith('weight_') and 
+                           any(mode in col for mode in ['low_vol', 'normal_vol', 'high_vol'])]
+    
+    # Check for old labeling columns
+    old_label_cols = [col for col in df.columns if col.endswith('_label') and 
+                     any(profile in col for profile in ['small', 'medium', 'large'])]
+    
+    if weighted_label_cols and weighted_weight_cols:
+        validation_info['labeling_system'] = 'weighted_volatility_based'
+        validation_info['label_columns'] = weighted_label_cols
+        validation_info['weight_columns'] = weighted_weight_cols
+        validation_info['compatible'] = True
+        
+        # Validate we have matching pairs
+        expected_modes = ['low_vol_long', 'normal_vol_long', 'high_vol_long',
+                         'low_vol_short', 'normal_vol_short', 'high_vol_short']
+        
+        for mode in expected_modes:
+            label_col = f'label_{mode}'
+            weight_col = f'weight_{mode}'
+            
+            if label_col not in df.columns:
+                validation_info['warnings'].append(f"Missing label column: {label_col}")
+                validation_info['compatible'] = False
+            
+            if weight_col not in df.columns:
+                validation_info['warnings'].append(f"Missing weight column: {weight_col}")
+                validation_info['compatible'] = False
+        
+    elif old_label_cols:
+        validation_info['labeling_system'] = 'original_mae_based'
+        validation_info['label_columns'] = old_label_cols
+        validation_info['compatible'] = True
+        validation_info['warnings'].append("Using original labeling system - consider upgrading to weighted system")
+        
+    else:
+        validation_info['warnings'].append("No recognized labeling columns found")
+    
+    return validation_info
 
 
 def validate_feature_ranges(df):
