@@ -13,8 +13,8 @@ Machine learning system to predict optimal entry timing for E-mini S&P 500 futur
 
 ### Production Scripts
 ```bash
-# Label full dataset (optimized version)
-python label_full_dataset.py
+# Complete pipeline on EC2 (conversion + labeling + features + training)
+python aws_setup/ec2_complete_pipeline.py
 
 # Test labeling on sample
 python project/scripts/test_labeling.py
@@ -87,13 +87,13 @@ python tests/validation/quick_validation.py
 - **Models**: 6 XGBoost models (Long/Short × Small/Medium/Large position sizes)
 - **Architecture**: Separate specialized model per trading profile for optimal performance
 
-## Data Pipeline
+## Data Pipeline (Single EC2 Instance)
 
 1. **Raw Data**: Databento DBN.ZST → Parquet format (RTH-only filtering)
-2. **Labeling**: Apply 6 trading profiles with MAE filtering
+2. **Labeling**: Apply 6 volatility-based modes with weighted labeling system
 3. **Features**: 43 engineered features (volume, price, time, microstructure)
-4. **Training**: 6 specialized XGBoost models (one per trading profile)
-5. **Deployment**: Real-time inference ensemble system
+4. **Training**: 6 specialized XGBoost models (one per volatility mode)
+5. **Deployment**: Simple EC2 deployment for real-time inference
 
 ## Development Workflow
 
@@ -104,8 +104,8 @@ python tests/validation/quick_validation.py
 
 ## Next Steps
 
-1. Complete feature engineering module
-2. Test feature pipeline on sample data
-3. Scale to full 15-year dataset processing
-4. Train 6 XGBoost models on AWS SageMaker
-5. Deploy real-time inference ensemble system
+1. Complete weighted labeling system implementation
+2. Test complete pipeline on sample data
+3. Scale to full 15-year dataset processing on EC2
+4. Train 6 XGBoost models on same EC2 instance
+5. Deploy simple EC2-based inference system

@@ -1,7 +1,7 @@
 # XGBoost Training Strategy for ES Trading Models
 
 ## Overview
-Train 6 specialized XGBoost models (one per trading profile) to predict optimal entry timing for ES futures trades.
+Train 6 specialized XGBoost models (one per volatility-based trading mode) to predict optimal entry timing for ES futures trades using weighted binary classification.
 
 ## Why XGBoost Over LSTM?
 
@@ -24,42 +24,48 @@ Train 6 specialized XGBoost models (one per trading profile) to predict optimal 
 
 ## Model Architecture
 
-### 6 Independent XGBoost Models
+### 6 Independent XGBoost Models (Volatility-Based)
 
 ```python
 models = {
-    'long_2to1_small': {
-        'target_column': 'long_2to1_small_label',
+    'low_vol_long': {
+        'label_column': 'label_low_vol_long',
+        'weight_column': 'weight_low_vol_long',
         'target_ticks': 12,
         'stop_ticks': 6,
         'direction': 'long'
     },
-    'long_2to1_medium': {
-        'target_column': 'long_2to1_medium_label', 
+    'normal_vol_long': {
+        'label_column': 'label_normal_vol_long',
+        'weight_column': 'weight_normal_vol_long', 
         'target_ticks': 16,
         'stop_ticks': 8,
         'direction': 'long'
     },
-    'long_2to1_large': {
-        'target_column': 'long_2to1_large_label',
+    'high_vol_long': {
+        'label_column': 'label_high_vol_long',
+        'weight_column': 'weight_high_vol_long',
         'target_ticks': 20, 
         'stop_ticks': 10,
         'direction': 'long'
     },
-    'short_2to1_small': {
-        'target_column': 'short_2to1_small_label',
+    'low_vol_short': {
+        'label_column': 'label_low_vol_short',
+        'weight_column': 'weight_low_vol_short',
         'target_ticks': 12,
         'stop_ticks': 6, 
         'direction': 'short'
     },
-    'short_2to1_medium': {
-        'target_column': 'short_2to1_medium_label',
+    'normal_vol_short': {
+        'label_column': 'label_normal_vol_short',
+        'weight_column': 'weight_normal_vol_short',
         'target_ticks': 16,
         'stop_ticks': 8,
         'direction': 'short'
     },
-    'short_2to1_large': {
-        'target_column': 'short_2to1_large_label',
+    'high_vol_short': {
+        'label_column': 'label_high_vol_short',
+        'weight_column': 'weight_high_vol_short',
         'target_ticks': 20,
         'stop_ticks': 10,
         'direction': 'short'
@@ -69,33 +75,40 @@ models = {
 
 ## Training Data Preparation
 
-### Label Encoding for XGBoost
-Convert 3-class labels to binary classification:
+### Weighted Binary Classification
+Use the new weighted labeling system directly:
 
 ```python
-def prepare_xgboost_labels(df, label_column):
+def prepare_weighted_xgboost_data(df, label_column, weight_column):
     """
-    Convert labels for XGBoost binary classification
+    Prepare data for weighted XGBoost training
     
-    Original labels:
-    +1 = Optimal entry (keep as 1)
-     0 = Suboptimal entry (convert to 0) 
-    -1 = Loss (convert to 0)
-    NaN = Timeout (exclude from training)
+    New labeling system:
+    1 = Winner (target hit first)
+    0 = Loser (stop hit first or timeout)
     
-    XGBoost labels:
-    1 = Optimal entry (trade this)
-    0 = Not optimal (don't trade)
+    Weights incorporate:
+    - Quality weight (based on MAE)
+    - Velocity weight (based on speed to target)  
+    - Time decay (recent data weighted higher)
     """
-    # Remove timeout bars (NaN labels)
-    mask = df[label_column].notna()
-    df_clean = df[mask].copy()
+    # Labels are already binary (0 or 1), no conversion needed
+    df_clean = df.copy()
     
-    # Convert to binary: 1 stays 1, everything else becomes 0
-    df_clean['xgb_label'] = (df_clean[label_column] == 1).astype(int)
+    # Validate labels and weights
+    assert df_clean[label_column].isin([0, 1]).all(), "Labels must be 0 or 1"
+    assert (df_clean[weight_column] > 0).all(), "Weights must be positive"
     
-    return df_clean
+    return df_clean[label_column], df_clean[weight_column]
 ```
+
+### Weight System Benefits
+The new weighting system provides significant advantages:
+
+1. **Quality Weighting**: Better entries (lower MAE) get higher importance
+2. **Velocity Weighting**: Faster-moving trades prioritized  
+3. **Time Decay**: Recent market conditions weighted higher
+4. **Balanced Learning**: Winners and losers both contribute meaningfully
 
 ### Feature Selection
 Use all 43 engineered features:
@@ -184,7 +197,7 @@ feature_cols = [col for col in df.columns if col not in
 print(f"Training with {len(feature_cols)} features")
 ```
 
-### 2. Train Each Model
+### 2. Train Each Model with Sample Weights
 ```python
 import xgboost as xgb
 from sklearn.metrics import classification_report, roc_auc_score
@@ -194,40 +207,57 @@ trained_models = {}
 for model_name, config in models.items():
     print(f"\nTraining {model_name}...")
     
-    # Prepare data for this profile
-    label_col = config['target_column']
-    df_model = prepare_xgboost_labels(df, label_col)
+    # Prepare weighted data for this mode
+    label_col = config['label_column']
+    weight_col = config['weight_column']
     
     # Split data chronologically
-    train_df, val_df, test_df = create_time_splits(df_model)
+    train_df, val_df, test_df = create_time_splits(df)
     
-    # Prepare features and labels
+    # Prepare features, labels, and weights
     X_train = train_df[feature_cols]
-    y_train = train_df['xgb_label']
-    X_val = val_df[feature_cols] 
-    y_val = val_df['xgb_label']
+    y_train, sample_weights_train = prepare_weighted_xgboost_data(
+        train_df, label_col, weight_col
+    )
     
-    # Train XGBoost model
+    X_val = val_df[feature_cols] 
+    y_val, sample_weights_val = prepare_weighted_xgboost_data(
+        val_df, label_col, weight_col
+    )
+    
+    # Train XGBoost model with sample weights
     model = xgb.XGBClassifier(**xgb_params)
     
     model.fit(
         X_train, y_train,
+        sample_weight=sample_weights_train,  # Key addition: use sample weights
         eval_set=[(X_val, y_val)],
+        eval_sample_weight=[sample_weights_val],  # Weighted validation too
         early_stopping_rounds=50,
         verbose=False
     )
     
     # Evaluate
     val_pred = model.predict_proba(X_val)[:, 1]
-    val_auc = roc_auc_score(y_val, val_pred)
+    val_auc = roc_auc_score(y_val, val_pred, sample_weight=sample_weights_val)
     
-    print(f"Validation AUC: {val_auc:.4f}")
+    print(f"Weighted Validation AUC: {val_auc:.4f}")
+    
+    # Report weight statistics
+    win_rate = y_train.mean()
+    avg_winner_weight = sample_weights_train[y_train == 1].mean()
+    avg_loser_weight = sample_weights_train[y_train == 0].mean()
+    
+    print(f"Win rate: {win_rate:.3f}")
+    print(f"Avg winner weight: {avg_winner_weight:.3f}")
+    print(f"Avg loser weight: {avg_loser_weight:.3f}")
     
     # Store model
     trained_models[model_name] = {
         'model': model,
         'config': config,
         'val_auc': val_auc,
+        'win_rate': win_rate,
         'feature_importance': model.feature_importances_
     }
 ```
@@ -257,15 +287,22 @@ for model_name, model_info in trained_models.items():
 ## Expected Performance Metrics
 
 ### Target Metrics
-- **AUC**: >0.55 (anything above 0.5 is profitable)
-- **Precision**: >0.02 (2% of signals should be optimal)
-- **Recall**: >0.80 (catch 80% of optimal entries)
+- **Weighted AUC**: >0.55 (anything above 0.5 is profitable)
+- **Win Rate**: 15-40% (varies by volatility mode)
+- **Precision**: >0.03 (3% of high-confidence signals should win)
+- **Recall**: >0.70 (catch 70% of winning entries)
 
-### Class Imbalance Handling
-Optimal entries are rare (~1-2% of bars):
-- Use `scale_pos_weight` parameter in XGBoost
-- Focus on AUC and precision rather than accuracy
-- Consider threshold tuning for deployment
+### Expected Win Rates by Mode
+Based on volatility and risk parameters:
+- **Low Vol (6/12 ticks)**: 35-40% win rate (tighter stops, easier targets)
+- **Normal Vol (8/16 ticks)**: 25-30% win rate (balanced risk/reward)
+- **High Vol (10/20 ticks)**: 15-25% win rate (wider stops, harder targets)
+
+### Weighted Training Benefits
+- **Quality Focus**: High-quality entries (low MAE) get 2x weight
+- **Speed Preference**: Fast-moving setups get 2x weight
+- **Recency Bias**: Recent data automatically weighted higher
+- **Balanced Learning**: Both winners and losers contribute meaningfully
 
 ## Deployment Strategy
 
@@ -274,8 +311,8 @@ Optimal entries are rare (~1-2% of bars):
 # Real-time inference ensemble
 def predict_optimal_entries(features_dict):
     """
-    Get predictions from all 6 models
-    Returns dict of probabilities for each profile
+    Get predictions from all 6 volatility-based models
+    Returns dict of probabilities for each mode
     """
     predictions = {}
     
@@ -286,29 +323,62 @@ def predict_optimal_entries(features_dict):
     
     return predictions
 
-# Example usage
+# Example usage with volatility-based selection
 current_features = extract_features(current_bar)
+current_volatility = get_current_volatility_regime(current_features)
 entry_probs = predict_optimal_entries(current_features)
 
-# Trade if any model shows high confidence
-for profile, prob in entry_probs.items():
+# Select appropriate models based on current volatility
+if current_volatility == 'low':
+    relevant_models = ['low_vol_long', 'low_vol_short']
+elif current_volatility == 'high':
+    relevant_models = ['high_vol_long', 'high_vol_short']
+else:
+    relevant_models = ['normal_vol_long', 'normal_vol_short']
+
+# Trade if relevant model shows high confidence
+for model_name in relevant_models:
+    prob = entry_probs[model_name]
     if prob > 0.7:  # 70% confidence threshold
-        print(f"High confidence signal: {profile} ({prob:.3f})")
+        direction = 'LONG' if 'long' in model_name else 'SHORT'
+        print(f"High confidence {direction} signal: {model_name} ({prob:.3f})")
 ```
 
 ### Model Updates
-- Retrain monthly with new data
+- Retrain monthly with new data on EC2
 - A/B test new models against existing ones
 - Monitor performance degradation over time
+- Simple redeployment: just update model files on EC2
 
-## Advantages of This Approach
+## Advantages of This Weighted XGBoost Approach
 
-1. **Specialized Models**: Each profile optimized independently
-2. **Fast Training**: Complete training in minutes vs hours
-3. **Interpretable**: Clear feature importance per profile
-4. **Robust**: Less prone to overfitting than neural networks
-5. **Production Ready**: Fast inference, easy deployment
-6. **Incremental Updates**: Can retrain individual models
-7. **Resource Efficient**: No GPU requirements
+1. **Volatility-Aware Models**: Each model specialized for specific market conditions
+2. **Quality-Weighted Learning**: Better entries get higher training importance
+3. **Velocity-Optimized**: Fast-moving setups prioritized in training
+4. **Time-Aware**: Recent market conditions automatically weighted higher
+5. **Fast Training**: Complete training in minutes vs hours for LSTM
+6. **Interpretable**: Clear feature importance per volatility regime
+7. **Robust**: Less prone to overfitting than neural networks
+8. **Production Ready**: Fast inference, easy EC2 deployment
+9. **Incremental Updates**: Can retrain individual models
+10. **Resource Efficient**: No GPU requirements, simple EC2 setup
 
-This XGBoost approach should provide better performance and easier maintenance compared to a single LSTM model for this tabular trading data use case.
+## Key Improvements Over Previous Approach
+
+### **Better Label Quality**
+- **Old**: 3-class system with arbitrary MAE filtering
+- **New**: Binary classification with sophisticated weighting
+
+### **Volatility Awareness**  
+- **Old**: Generic small/medium/large sizing
+- **New**: Volatility-based modes that adapt to market conditions
+
+### **Weighted Training**
+- **Old**: All examples weighted equally
+- **New**: Quality + velocity + recency weighting
+
+### **Simplified Deployment**
+- **Old**: Complex optimal vs suboptimal distinction
+- **New**: Simple binary win/loss with confidence scores
+
+This weighted XGBoost approach should provide significantly better performance and easier maintenance compared to both LSTM models and the previous unweighted labeling system.

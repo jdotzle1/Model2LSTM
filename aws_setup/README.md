@@ -2,8 +2,8 @@
 
 ## Overview
 This guide walks you through processing 15 years of ES futures data on AWS using:
-1. **EC2** for DBN → Parquet conversion (I/O intensive)
-2. **SageMaker Spot** for labeling + features (CPU intensive, 60-70% cost savings)
+1. **EC2** for complete pipeline: DBN → Parquet → Labeling → Features → XGBoost Training
+2. **Single instance approach** for simplicity and cost control
 
 ## Prerequisites
 
@@ -18,19 +18,18 @@ Upload your compressed DBN files to S3:
 aws s3 cp your-data/ s3://your-bucket/raw/dbn/ --recursive
 ```
 
-## Phase 1: Data Conversion (EC2)
+## Complete Pipeline on Single EC2 Instance
 
 ### Step 1: Launch EC2 Instance
 ```bash
-# Launch spot instance for cost savings
+# Launch on-demand instance for complete pipeline
 aws ec2 run-instances \
     --image-id ami-0abcdef1234567890 \  # Amazon Linux 2
-    --instance-type m5.xlarge \
+    --instance-type c5.4xlarge \
     --key-name your-key-pair \
     --security-group-ids sg-12345678 \
     --subnet-id subnet-12345678 \
-    --instance-market-options '{"MarketType":"spot","SpotOptions":{"MaxPrice":"0.10"}}' \
-    --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":100,"VolumeType":"gp3"}}]' \
+    --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":200,"VolumeType":"gp3"}}]' \
     --iam-instance-profile Name=EC2-S3-Access-Role
 ```
 
@@ -43,8 +42,8 @@ sudo yum update -y
 # Install Python 3.9+
 sudo yum install python3 python3-pip git -y
 
-# Install required packages
-pip3 install --user databento pandas pyarrow boto3
+# Install required packages for complete pipeline
+pip3 install --user databento pandas pyarrow boto3 xgboost scikit-learn numpy
 
 # Configure AWS credentials (if not using IAM role)
 aws configure
@@ -54,18 +53,18 @@ git clone https://github.com/your-username/es-trading-model.git
 cd es-trading-model
 ```
 
-### Step 3: Run Conversion
+### Step 3: Run Complete Pipeline
 ```bash
-# Edit configuration in ec2_conversion_setup.py
-nano aws_setup/ec2_conversion_setup.py
+# Edit configuration
+nano aws_setup/ec2_complete_pipeline.py
 
 # Update these variables:
 S3_BUCKET = "your-actual-bucket-name"
 S3_DBN_PREFIX = "raw/dbn/"
-S3_PARQUET_PREFIX = "raw/parquet/"
+S3_OUTPUT_PREFIX = "processed/"
 
-# Run conversion
-python3 aws_setup/ec2_conversion_setup.py
+# Run complete pipeline (conversion + labeling + features + training)
+python3 aws_setup/ec2_complete_pipeline.py
 ```
 
 **Expected output:**
@@ -103,32 +102,16 @@ aws s3 ls s3://your-bucket/raw/parquet/
 aws s3 ls s3://your-bucket/raw/parquet/ --human-readable --summarize
 ```
 
-## Phase 2: Labeling + Features (SageMaker)
+### Step 4: Monitor Progress
+The complete pipeline will run automatically and provide progress updates:
 
-### Step 1: Prepare SageMaker Role
-Create IAM role with these policies:
-- `AmazonSageMakerFullAccess`
-- `AmazonS3FullAccess` (or restricted to your bucket)
-
-### Step 2: Upload Code to S3
 ```bash
-# Upload processing scripts
-aws s3 cp aws_setup/sagemaker_processing.py s3://your-bucket/code/
-aws s3 cp simple_optimized_labeling.py s3://your-bucket/code/
-aws s3 cp project/ s3://your-bucket/code/project/ --recursive
-```
-
-### Step 3: Configure and Launch Job
-```bash
-# Edit configuration
-nano aws_setup/launch_sagemaker_job.py
-
-# Update these variables:
-S3_BUCKET = 'your-actual-bucket-name'
-SAGEMAKER_ROLE = 'arn:aws:iam::YOUR-ACCOUNT:role/SageMakerExecutionRole'
-
-# Launch processing job
-python3 aws_setup/launch_sagemaker_job.py
+# Expected pipeline stages:
+# 1. DBN → Parquet conversion (1-2 hours)
+# 2. Weighted labeling system (2-3 hours)  
+# 3. Feature engineering (1 hour)
+# 4. XGBoost model training (1-2 hours)
+# Total: ~6-8 hours
 ```
 
 **Expected output:**
@@ -190,12 +173,13 @@ cat dataset_metadata.json
 - **Data transfer:** S3 download/upload (minimal cost)
 - **Total estimated:** $5-15 for conversion
 
-### SageMaker Processing Costs (RTH-only data)
-- **Instance:** ml.c5.4xlarge spot (~$0.245/hour)
-- **Estimated time:** 1-3 hours (reduced from 3-6 hours due to RTH filtering)
-- **Total estimated:** $0.25-0.75 with spot pricing
-- **Savings vs on-demand:** 60-70%
-- **Additional savings from RTH filtering:** ~65% data reduction
+### Complete Pipeline Costs (EC2 On-Demand)
+- **Instance:** c5.4xlarge (~$0.816/hour)
+- **Estimated time:** 6-8 hours for complete pipeline
+- **Compute cost:** $4.90-6.53
+- **Storage (EBS):** 200 GB × $0.08/GB/month × 0.25 months = $4.00
+- **Storage (S3):** 50 GB × $0.023/GB/month = $1.15
+- **Data transfer:** ~$1.00
 
 ### RTH Filtering Benefits
 - **Time range:** 07:30-15:00 CT (7.5 hours of 24-hour day)
@@ -204,7 +188,7 @@ cat dataset_metadata.json
 - **Cost reduction:** ~65% lower compute costs
 - **Quality improvement:** Focus on liquid, predictable market hours
 
-### Total Project Cost: $2-9 (down from $6-17 without filtering)
+### Total Project Cost: ~$12 (simple, predictable pricing)
 
 ## Monitoring and Troubleshooting
 
