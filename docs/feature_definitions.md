@@ -1,9 +1,18 @@
-# Feature Engineering Definitions - Correct Timing
+# Feature Engineering Definitions - XGBoost Models
 
 ## Core Principle: Predict Bar N Using Only Historical Data
-**At the close of bar N-1, predict if bar N will be optimal**
+**At the close of bar N-1, predict if bar N will be optimal for each trading profile**
 **Features for bar N can ONLY use data from bars 0 to N-1 (NOT including N)**
 **We CANNOT use any data from bar N or future bars**
+
+## Model Architecture: 6 Specialized XGBoost Models
+Each trading profile gets its own XGBoost model for optimal performance:
+- **long_2to1_small_model**: Predicts optimal long entries (12 tick target, 6 tick stop)
+- **long_2to1_medium_model**: Predicts optimal long entries (16 tick target, 8 tick stop)  
+- **long_2to1_large_model**: Predicts optimal long entries (20 tick target, 10 tick stop)
+- **short_2to1_small_model**: Predicts optimal short entries (12 tick target, 6 tick stop)
+- **short_2to1_medium_model**: Predicts optimal short entries (16 tick target, 8 tick stop)
+- **short_2to1_large_model**: Predicts optimal short entries (20 tick target, 10 tick stop)
 
 ## Timing Example:
 ```

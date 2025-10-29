@@ -1,6 +1,6 @@
-# ES Trading Model - Feature Summary
+# ES Trading Model - Feature Summary (XGBoost Models)
 
-## 43 Features Across 7 Categories
+## 43 Features Across 7 Categories for 6 XGBoost Models
 
 ### 1. Volume Features (4)
 | Feature | Range | Description |
@@ -82,3 +82,24 @@
 **Session Timing**: Different periods favor different strategies (momentum vs fade)
 
 **Total: 43 features** designed for ES futures fade and momentum strategies with proper data leakage prevention.
+
+## XGBoost Model Architecture
+
+### 6 Specialized Models (One Per Trading Profile)
+Each model predicts binary classification: **Optimal Entry (1)** vs **Not Optimal (0 or -1)**
+
+| Model | Target | Stop | Training Data |
+|-------|--------|------|---------------|
+| `long_2to1_small` | +12 ticks | -6 ticks | `long_2to1_small_label` column |
+| `long_2to1_medium` | +16 ticks | -8 ticks | `long_2to1_medium_label` column |
+| `long_2to1_large` | +20 ticks | -10 ticks | `long_2to1_large_label` column |
+| `short_2to1_small` | -12 ticks | +6 ticks | `short_2to1_small_label` column |
+| `short_2to1_medium` | -16 ticks | +8 ticks | `short_2to1_medium_label` column |
+| `short_2to1_large` | -20 ticks | +10 ticks | `short_2to1_large_label` column |
+
+### Why Separate Models vs Single Multi-Output Model?
+1. **Specialized Feature Importance**: Each profile may weight features differently
+2. **Independent Hyperparameters**: Optimal depth, learning rate, etc. per profile
+3. **Better Performance**: Specialized models typically outperform multi-output
+4. **Easier Deployment**: Can deploy/update models independently
+5. **Profile-Specific Insights**: Clear feature importance per trading style

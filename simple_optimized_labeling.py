@@ -201,15 +201,73 @@ def apply_mae_filter_simple(df, profile_name):
     
     return df[f'{profile_name}_label']
 
+def verify_rth_data(df):
+    """
+    Verify that we're only processing RTH data
+    This prevents labeling ETH data which has different characteristics
+    """
+    print("Verifying RTH-only data...")
+    
+    try:
+        import pytz
+        
+        # Get timestamp
+        if 'timestamp' not in df.columns:
+            if df.index.name == 'ts_event' or pd.api.types.is_datetime64_any_dtype(df.index):
+                timestamps = df.index
+            else:
+                print("  Warning: Cannot verify RTH - no timestamp found")
+                return df
+        else:
+            timestamps = df['timestamp']
+        
+        # Convert to Central Time
+        central_tz = pytz.timezone('US/Central')
+        
+        if timestamps.tz is None:
+            ct_time = timestamps.tz_localize('UTC').tz_convert(central_tz)
+        else:
+            ct_time = timestamps.tz_convert(central_tz)
+        
+        # Check time ranges
+        ct_decimal = ct_time.hour + ct_time.minute / 60.0
+        
+        # Count ETH bars (should be zero)
+        eth_mask = (ct_decimal < 7.5) | (ct_decimal >= 15.0)
+        eth_count = eth_mask.sum()
+        
+        if eth_count > 0:
+            eth_pct = (eth_count / len(df)) * 100
+            print(f"  ⚠️  Found {eth_count:,} ETH bars ({eth_pct:.1f}%)")
+            print(f"  Filtering out ETH data before labeling...")
+            
+            rth_mask = ~eth_mask
+            df_rth = df[rth_mask].copy().reset_index(drop=True)
+            
+            print(f"  Kept {len(df_rth):,} RTH bars for labeling")
+            return df_rth
+        else:
+            print(f"  ✓ All {len(df):,} bars are RTH (07:30-15:00 CT)")
+            return df
+            
+    except Exception as e:
+        print(f"  Error in RTH verification: {str(e)}")
+        return df
+
 def calculate_labels_for_all_profiles_optimized(df, lookforward_seconds=LOOKFORWARD_SECONDS):
     """
-    Optimized main labeling function
+    Optimized main labeling function with RTH verification
     """
     print(f"Calculating labels for {len(PROFILES)} profiles (OPTIMIZED)...")
     print(f"Dataset size: {len(df):,} bars")
     print(f"Lookforward window: {lookforward_seconds} seconds ({lookforward_seconds/60:.1f} minutes)")
     
-    df_result = df.copy()
+    # Verify RTH-only data
+    df_result = verify_rth_data(df.copy())
+    
+    if len(df_result) != len(df):
+        print(f"Dataset size after RTH filtering: {len(df_result):,} bars")
+    
     total_start_time = time.time()
     
     for i, profile in enumerate(PROFILES, 1):

@@ -1,13 +1,13 @@
-# ES Trading Model - LSTM Prediction System
+# ES Trading Model - XGBoost Prediction System
 
 ## Overview
-Machine learning system to predict optimal entry timing for E-mini S&P 500 futures trades using LSTM neural networks.
+Machine learning system to predict optimal entry timing for E-mini S&P 500 futures trades using 6 specialized XGBoost models (one per trading profile).
 
 ## Project Status
 - ✅ **Data Conversion**: DBN → Parquet format complete
 - ✅ **Labeling Logic**: Win/loss/MAE filtering complete and optimized (300x speedup)
 - 🔄 **Feature Engineering**: In progress (55 features planned)
-- ⏳ **Model Training**: Pending (LSTM with 6 output heads)
+- ⏳ **Model Training**: Pending (6 XGBoost models, one per trading profile)
 
 ## Quick Start
 
@@ -81,18 +81,19 @@ python tests/validation/quick_validation.py
 ## Trading Strategy
 
 - **Asset**: E-mini S&P 500 futures (ES)
-- **Timeframe**: 1-second bars, RTH only (9:30 AM - 4:00 PM ET)
+- **Timeframe**: 1-second bars, RTH only (07:30-15:00 CT)
 - **Risk/Reward**: All profiles are 2:1 reward-to-risk
 - **Lookforward**: 15 minutes to determine win/loss
-- **Profiles**: 6 total (Long/Short × Small/Medium/Large position sizes)
+- **Models**: 6 XGBoost models (Long/Short × Small/Medium/Large position sizes)
+- **Architecture**: Separate specialized model per trading profile for optimal performance
 
 ## Data Pipeline
 
-1. **Raw Data**: Databento DBN.ZST → Parquet format
+1. **Raw Data**: Databento DBN.ZST → Parquet format (RTH-only filtering)
 2. **Labeling**: Apply 6 trading profiles with MAE filtering
-3. **Features**: 55 engineered features (volume, price, time, microstructure)
-4. **Training**: LSTM model with 6 output heads
-5. **Deployment**: Real-time inference system
+3. **Features**: 43 engineered features (volume, price, time, microstructure)
+4. **Training**: 6 specialized XGBoost models (one per trading profile)
+5. **Deployment**: Real-time inference ensemble system
 
 ## Development Workflow
 
@@ -106,5 +107,5 @@ python tests/validation/quick_validation.py
 1. Complete feature engineering module
 2. Test feature pipeline on sample data
 3. Scale to full 15-year dataset processing
-4. Train LSTM model on AWS SageMaker
-5. Deploy real-time inference system
+4. Train 6 XGBoost models on AWS SageMaker
+5. Deploy real-time inference ensemble system

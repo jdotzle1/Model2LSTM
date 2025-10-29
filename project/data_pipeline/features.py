@@ -29,13 +29,62 @@ import pytz
 from datetime import datetime
 
 
+def verify_rth_features(df):
+    """
+    Verify RTH-only data and ensure no is_eth features are True
+    This is a final safety check for feature engineering
+    """
+    print("  Verifying RTH-only data for features...")
+    
+    try:
+        import pytz
+        
+        # Get timestamp
+        if 'timestamp' not in df.columns:
+            if df.index.name == 'ts_event' or pd.api.types.is_datetime64_any_dtype(df.index):
+                timestamps = df.index
+            else:
+                print("    Warning: Cannot verify RTH for features")
+                return df
+        else:
+            timestamps = df['timestamp']
+        
+        # Convert to Central Time
+        central_tz = pytz.timezone('US/Central')
+        
+        if timestamps.tz is None:
+            ct_time = timestamps.tz_localize('UTC').tz_convert(central_tz)
+        else:
+            ct_time = timestamps.tz_convert(central_tz)
+        
+        # Check time ranges
+        ct_decimal = ct_time.hour + ct_time.minute / 60.0
+        
+        # Count ETH bars
+        eth_mask = (ct_decimal < 7.5) | (ct_decimal >= 15.0)
+        eth_count = eth_mask.sum()
+        
+        if eth_count > 0:
+            print(f"    ⚠️  Found {eth_count:,} ETH bars - removing before feature engineering")
+            rth_mask = ~eth_mask
+            df_rth = df[rth_mask].copy().reset_index(drop=True)
+            print(f"    Kept {len(df_rth):,} RTH bars")
+            return df_rth
+        else:
+            print(f"    ✓ All {len(df):,} bars are RTH")
+            return df
+            
+    except Exception as e:
+        print(f"    Error in RTH verification: {str(e)}")
+        return df
+
 def create_all_features(df):
     """
-    Add 43 features to existing labeled dataset
+    Add 43 features to existing labeled dataset (RTH-only)
     Implement fail-fast behavior for critical errors rather than complex recovery logic
     Add basic progress logging using print statements
     
-    Input: DataFrame with OHLCV + labels (existing columns)
+    Input: DataFrame with OHLCV + labels (existing columns, RTH-only)
     Output: DataFrame with OHLCV + labels + features (original + 43 columns)
     
     Args:
@@ -47,6 +96,9 @@ def create_all_features(df):
     print(f"Processing {len(df):,} bars for feature engineering...")
     
     try:
+        # Verify RTH-only data first
+        df = verify_rth_features(df)
+        
         # Input validation - fail fast on critical errors
         validate_input(df)
         
@@ -318,7 +370,7 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
 
 
 def get_expected_feature_names():
-    """Return list of expected 43 feature names as defined in feature definitions"""
+    """Return list of expected 43 feature names as defined in feature definitions (RTH-only version)"""
     return [
         # Volume Features (4)
         'volume_ratio_30s', 'volume_slope_30s', 'volume_slope_5s', 'volume_exhaustion',
@@ -340,7 +392,7 @@ def get_expected_feature_names():
         # Microstructure Features (6)
         'bar_range', 'relative_bar_size', 'uptick_pct_30s', 'uptick_pct_60s', 'bar_flow_consistency', 'directional_strength',
         
-        # Time Features (7)
+        # Time Features (7) - RTH-Only: is_eth will always be 0
         'is_eth', 'is_pre_open', 'is_rth_open', 'is_morning', 'is_lunch', 'is_afternoon', 'is_rth_close'
     ]
 
@@ -919,8 +971,8 @@ def add_microstructure_features(df):
 
 def add_time_features(df):
     """
-    Time Features (7 features)
-    Handle insufficient historical data by setting features to NaN with minimal validation
+    Time Features (6 features) - RTH-Only Version
+    Since we filter to RTH-only (07:30-15:00 CT), is_eth should always be 0
     """
     try:
         # Convert UTC to Central Time and get session periods
@@ -939,9 +991,9 @@ def add_time_features(df):
         
         df['ct_decimal'] = df['ct_time'].dt.hour + df['ct_time'].dt.minute / 60.0
         
-        # Session period binary features (one-hot encoding)
-        df['is_eth'] = (((df['ct_decimal'] >= 15.0) & (df['ct_decimal'] < 24.0)) | 
-                        ((df['ct_decimal'] >= 0.0) & (df['ct_decimal'] < 7.5))).astype(int)
+        # RTH Session period binary features (one-hot encoding)
+        # Note: is_eth should always be 0 since we filter to RTH-only
+        df['is_eth'] = 0  # Always 0 for RTH-only data
         df['is_pre_open'] = ((df['ct_decimal'] >= 7.5) & (df['ct_decimal'] < 8.5)).astype(int)
         df['is_rth_open'] = ((df['ct_decimal'] >= 8.5) & (df['ct_decimal'] < 9.25)).astype(int)
         df['is_morning'] = ((df['ct_decimal'] >= 9.25) & (df['ct_decimal'] < 11.0)).astype(int)
@@ -949,22 +1001,39 @@ def add_time_features(df):
         df['is_afternoon'] = ((df['ct_decimal'] >= 13.0) & (df['ct_decimal'] < 14.5)).astype(int)
         df['is_rth_close'] = ((df['ct_decimal'] >= 14.5) & (df['ct_decimal'] < 15.0)).astype(int)
         
-        # Validate that exactly one session period is active at any time
-        session_sum = (df['is_eth'] + df['is_pre_open'] + df['is_rth_open'] + 
-                      df['is_morning'] + df['is_lunch'] + df['is_afternoon'] + df['is_rth_close'])
+        # Validate RTH-only data
+        eth_bars = (((df['ct_decimal'] >= 15.0) & (df['ct_decimal'] < 24.0)) | 
+                   ((df['ct_decimal'] >= 0.0) & (df['ct_decimal'] < 7.5))).sum()
+        
+        if eth_bars > 0:
+            print(f"    ⚠️  Warning: Found {eth_bars} ETH bars in supposedly RTH-only data!")
+        
+        # Validate that exactly one RTH session period is active at any time
+        session_sum = (df['is_pre_open'] + df['is_rth_open'] + df['is_morning'] + 
+                      df['is_lunch'] + df['is_afternoon'] + df['is_rth_close'])
         
         invalid_sessions = (session_sum != 1).sum()
         if invalid_sessions > 0:
-            print(f"    Warning: {invalid_sessions} bars have invalid session period assignments")
+            print(f"    Warning: {invalid_sessions} bars have invalid RTH session assignments")
+            
+            # Show time range for debugging
+            min_time = df['ct_decimal'].min()
+            max_time = df['ct_decimal'].max()
+            print(f"    Time range: {min_time:.2f} to {max_time:.2f} CT")
+        
+        # Verify is_eth is always 0 (safety check)
+        if df['is_eth'].sum() > 0:
+            print(f"    ⚠️  Error: is_eth should be 0 for all RTH bars, found {df['is_eth'].sum()} non-zero values")
         
         # Cleanup temp columns
         df.drop(['ct_time', 'ct_decimal'], axis=1, inplace=True)
         
+        print(f"    ✓ RTH session periods assigned (is_eth always 0)")
         return df
         
     except Exception as e:
         print(f"    Error in time features calculation: {str(e)}")
-        # Set features to NaN on error (use 0 for binary features)
+        # Set features to 0 on error (RTH-only means no ETH)
         df['is_eth'] = 0
         df['is_pre_open'] = 0
         df['is_rth_open'] = 0
