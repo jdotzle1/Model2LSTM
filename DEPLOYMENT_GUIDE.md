@@ -304,12 +304,12 @@ class S3DataProcessor:
         try:
             response = self.s3_client.list_objects_v2(
                 Bucket=self.bucket_name,
-                Prefix='raw/dbn/',
+                Prefix='raw-data/databento/',
                 MaxKeys=1000
             )
             
             if 'Contents' not in response:
-                raise Exception(f"No files found in s3://{self.bucket_name}/raw/dbn/")
+                raise Exception(f"No files found in s3://{self.bucket_name}/raw-data/databento/")
             
             dbn_files = [obj['Key'] for obj in response['Contents'] 
                         if obj['Key'].endswith('.dbn.zst')]
@@ -618,12 +618,10 @@ python3 -c "import boto3; s3=boto3.client('s3'); print('✓ S3 connection workin
 ### 6.2 List Your S3 Files
 ```bash
 # Check what DBN files you have
-aws s3 ls s3://$S3_BUCKET/raw/dbn/ --human-readable
+aws s3 ls s3://$S3_BUCKET/raw-data/databento/ --human-readable
 
-# You should see files like:
-# 2024-01-15.dbn.zst
-# 2024-01-16.dbn.zst
-# etc.
+# You should see your file:
+# glbx-mdp3-20100606-20251021.ohlcv-1s.dbn.zst
 ```
 
 ---
@@ -795,8 +793,8 @@ After successful processing, you'll have in S3:
 ```bash
 # Check your bucket name and file structure
 aws s3 ls s3://$S3_BUCKET/
-aws s3 ls s3://$S3_BUCKET/raw/
-aws s3 ls s3://$S3_BUCKET/raw/dbn/
+aws s3 ls s3://$S3_BUCKET/raw-data/
+aws s3 ls s3://$S3_BUCKET/raw-data/databento/
 
 # Your file should end with .dbn.zst
 # Example: 15_years_es_data.dbn.zst

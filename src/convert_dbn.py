@@ -8,6 +8,7 @@ RTH (Regular Trading Hours) for ES futures: 07:30-15:00 Central Time
 
 import databento as db
 import pandas as pd
+import numpy as np
 import pytz
 from datetime import time
 
