@@ -110,7 +110,8 @@ def test_small_dbn_read(dbn_path):
         
         # Try to read just first few records
         print("Reading first 10 records...")
-        df_sample = store.to_df(limit=10)
+        df_sample = store.to_df()
+        df_sample = df_sample.head(10)  # Get first 10 rows after conversion
         
         print(f"✅ Successfully read {len(df_sample)} sample records")
         print(f"Columns: {df_sample.columns.tolist()}")
