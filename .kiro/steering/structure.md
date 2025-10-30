@@ -3,67 +3,82 @@
 ## Directory Organization
 
 ```
-├── project/                    # Core project modules
+├── main.py                     # Main production entry point
+├── requirements.txt            # Dependencies
+├── README.md                   # Project documentation
+├── src/                        # Production source code
+│   ├── data_pipeline/         # Core pipeline modules
+│   │   ├── weighted_labeling.py  # Weighted labeling system (6 volatility modes)
+│   │   ├── features.py       # Feature engineering functions (43 features)
+│   │   ├── pipeline.py       # Main pipeline orchestration
+│   │   └── validation_utils.py  # Validation and quality assurance
 │   ├── config/                # Configuration files
 │   │   └── config.py          # Project constants and settings
-│   ├── data/                  # Data storage (organized by processing stage)
-│   │   ├── raw/              # Original DBN.ZST files converted to Parquet
-│   │   ├── processed/        # Fully processed datasets with labels and features
-│   │   └── test/             # Small test datasets for development
-│   ├── data_pipeline/        # Core pipeline modules
-│   │   ├── __init__.py
-│   │   ├── labeling.py       # Original trade outcome labeling logic
-│   │   ├── features.py       # Feature engineering functions
-│   │   └── pipeline.py       # Main pipeline orchestration
-│   ├── scripts/              # Utility and processing scripts
-│   │   ├── prepare_data.py
-│   │   ├── validate_features.py
-│   │   ├── visualize_features.py
-│   │   ├── check_dataset_size.py
-│   │   ├── view_results.py
-│   │   └── test features.py
-│   └── convert_dbn.py        # Converts Databento files to Parquet format
-├── tests/                     # Testing and validation
-│   ├── validation/           # Algorithm validation scripts
-│   │   ├── validate_optimization.py  # Main validation script
-│   │   ├── test_labeling.py         # Basic labeling tests
-│   │   └── quick_validation.py      # Fast validation
-│   └── debug/               # Debugging utilities (development artifacts)
-├── docs/                     # Documentation and analysis
-├── archive/                  # Deprecated files and old implementations
-├── .kiro/steering/          # AI assistant guidance documents
-├── simple_optimized_labeling.py  # PRODUCTION: Optimized labeling algorithm
-└── label_full_dataset.py        # PRODUCTION: Full dataset processing script
+│   └── convert_dbn.py         # Converts Databento files to Parquet format
+├── tests/                     # All test files organized by type
+│   ├── unit/                  # Unit tests
+│   │   ├── test_weighted_labeling_comprehensive.py  # Weight calculation tests
+│   │   └── test_features_comprehensive.py          # Feature engineering tests
+│   ├── integration/           # Integration tests
+│   │   ├── test_final_integration_1000_bars.py     # Complete pipeline test
+│   │   ├── test_performance_monitoring.py          # Performance tests
+│   │   └── test_*.py          # Other integration tests
+│   └── validation/            # Validation scripts
+│       ├── run_comprehensive_validation.py         # Complete validation suite
+│       ├── validate_*.py      # Specific validation scripts
+│       └── test_*.py          # Validation test scripts
+├── scripts/                   # Utility and analysis scripts
+│   ├── analysis/              # Analysis scripts
+│   │   ├── analyze_winner_count.py
+│   │   ├── compare_labeling_systems.py
+│   │   └── performance_validation_summary.py
+│   └── utilities/             # Utility scripts
+│       ├── integrate_features.py
+│       ├── quick_performance_test.py
+│       └── update_imports.py
+├── deployment/                # Deployment files
+│   └── ec2/                   # EC2 deployment package
+│       ├── prepare_ec2_deployment.py
+│       ├── deploy_ec2_weighted_pipeline.sh
+│       └── ec2_deployment_package_*.tar.gz
+├── docs/                      # Documentation and reports
+│   └── reports/               # Generated reports and analysis
+├── archive/                   # Deprecated files and old implementations
+└── .kiro/steering/           # AI assistant guidance documents
 ```
 
-## Production Files (Root Level)
+## Production Files
 
-- `simple_optimized_labeling.py`: **MAIN PRODUCTION** - Optimized labeling algorithm (300x faster)
-- `label_full_dataset.py`: **MAIN PRODUCTION** - Script to process full 15-year dataset
+- `main.py`: **MAIN ENTRY POINT** - Production pipeline with CLI interface
+- `src/data_pipeline/`: **CORE MODULES** - Weighted labeling, features, validation
+- `requirements.txt`: **DEPENDENCIES** - All required Python packages
 
 ## Data Flow
 
 1. **Raw Data**: DBN.ZST files → `project/data/raw/` (Parquet)
-2. **Labeling**: Raw Parquet → Labeled data with trade outcomes
-3. **Features**: Labeled data → Full feature set (55+ columns)
-4. **Output**: `project/data/processed/` or `project/data/test/`
+2. **Weighted Labeling**: Raw Parquet → 12 columns (6 labels + 6 weights) for 6 volatility modes
+3. **Features**: Labeled data → 43 engineered features
+4. **Output**: `project/data/processed/` with 61 total columns (6 original + 12 labeling + 43 features)
 
 ## Module Responsibilities
 
-### `data_pipeline/labeling.py`
-- Defines 6 trading profiles with risk/reward parameters
-- Implements target/stop checking logic
-- Calculates Maximum Adverse Excursion (MAE)
-- Applies MAE filtering for optimal trade selection
+### `data_pipeline/weighted_labeling.py` (NEW)
+- Defines 6 volatility-based trading modes (Low/Normal/High vol × Long/Short)
+- Implements binary labeling (0=loss, 1=win) for each mode
+- Calculates three-component weights:
+  - **Quality weights**: Based on MAE (Maximum Adverse Excursion)
+  - **Velocity weights**: Based on speed to target
+  - **Time decay weights**: Based on data recency
+- Generates 12 columns for XGBoost training
 
 ### `data_pipeline/features.py`
-- Volume features (ratios, percentiles, z-scores)
-- Price context (VWAP, RTH levels, distances)
-- Swing high/low identification
-- Return calculations at multiple timeframes
-- Volatility measures (ATR, realized vol)
-- Microstructure features (tick direction, bar characteristics)
-- Time-based features (session periods, time since open/close)
+- Volume features (4): ratios, slopes, exhaustion patterns
+- Price context features (5): VWAP, distances, slopes
+- Consolidation features (10): range identification, retouch counting
+- Return features (5): momentum at multiple timeframes
+- Volatility features (6): ATR, regime detection, breakouts
+- Microstructure features (6): bar characteristics, tick flow
+- Time features (7): session period identification
 
 ## Naming Conventions
 

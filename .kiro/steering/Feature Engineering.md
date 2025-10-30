@@ -1,7 +1,7 @@
 # Feature Engineering - Beginner's Guide
 
 ## What Are Features?
-Features are calculated values that give the model context about market conditions.
+Features are calculated values that give the model context about market conditions for the 6 XGBoost models.
 
 **Raw data only tells part of the story:**
 ```
@@ -12,164 +12,185 @@ volume: 1250
 
 **Features add context:**
 ```
-Is 4750.75 high or low? → distance_from_vwap = -2.5 (below average)
+Is 4750.75 high or low? → distance_from_vwap_pct = -0.05% (below average)
 Is volume high? → volume_ratio_30s = 1.8 (80% above recent avg)
-Is price moving fast? → return_5s = 0.0015 (0.15% up in 5 seconds)
+Is price moving fast? → return_30s = 0.0015 (0.15% up in 30 seconds)
+Which volatility regime? → volatility_regime = 1.2 (high volatility)
 ```
 
-## Feature Categories (55 Total)
+## Feature Categories (43 Total)
 
-### 1. Volume Features (5 features)
-**Purpose:** Understand volume context
+### 1. Volume Features (4 features)
+**Purpose:** Understand volume context and patterns
 
 - `volume_ratio_30s` - Volume vs last 30 seconds average
   - 1.0 = normal, 2.0 = twice normal, 0.5 = half normal
   
-- `volume_ratio_300s` - Volume vs last 5 minutes average
-  - Longer-term volume context
+- `volume_slope_30s` - Volume trend over 30 seconds
+  - Positive = increasing volume, negative = decreasing
   
-- `volume_pct_rank` - Where volume ranks today (0-1)
-  - 0.9 = 90th percentile for the day
+- `volume_slope_5s` - Short-term volume momentum
+  - Captures immediate volume changes
   
-- `volume_change_5s` - Volume momentum
-  - Positive = increasing, negative = decreasing
-  
-- `volume_zscore_300s` - Statistical outlier detection
-  - >2 = unusually high volume, <-2 = unusually low
+- `volume_exhaustion` - Combined volume ratio and slope
+  - High values indicate volume exhaustion patterns
 
 **Why transformed volume, not raw?**
-Raw volume changes over time (2010 vs 2025). Ratios stay consistent.
+Raw volume changes over time (2010 vs 2025). Ratios and slopes stay consistent.
 
-### 2. Price Context Features (8 features)
+### 2. Price Context Features (5 features)
 **Purpose:** Where is price relative to key levels?
 
-- `vwap` - Volume-weighted average price (fair value for the day)
-- `distance_from_vwap` - Points away from VWAP
-  - Positive = above VWAP, negative = below
+- `vwap` - Volume-weighted average price (fair value)
+  - Uses 5-minute rolling window for efficiency
   
 - `distance_from_vwap_pct` - Percentage away from VWAP
+  - Positive = above VWAP, negative = below
   
-- `rth_high` / `rth_low` - Session high/low so far today
+- `vwap_slope` - VWAP trend direction
+  - Positive = uptrending, negative = downtrending
   
 - `distance_from_rth_high` - How far from session high
   - Near 0 = at highs (potential resistance)
   
 - `distance_from_rth_low` - How far from session low
   - Near 0 = at lows (potential support)
-  
-- `position_in_rth_range` - Position in today's range (0-1)
-  - 0 = at low, 0.5 = middle, 1 = at high
 
-### 3. Swing High/Low Features (10 features)
-**Purpose:** Identify recent peaks and troughs for reversals
+### 3. Consolidation Features (10 features)
+**Purpose:** Identify range-bound periods and breakout potential
 
-**What's a swing high?**
-A bar where price is highest compared to bars around it.
+**What's a consolidation range?**
+A period where price trades within defined high/low boundaries.
 
-**Example (5-second lookback):**
-```
-Bar 95: high = 4750.00
-Bar 96: high = 4750.50
-Bar 97: high = 4751.00 ← Swing high!
-Bar 98: high = 4750.75
-Bar 99: high = 4750.25
-```
+**Short-term ranges (2 minutes):**
+- `short_range_high` - Highest price in 120-bar window
+- `short_range_low` - Lowest price in 120-bar window  
+- `short_range_size` - Range size in points
+- `position_in_short_range` - Where price sits in range (0-1)
+- `short_range_retouches` - Binary: touching range boundaries
 
-Bar 97 is a swing high because its high (4751.00) is the highest in the 5-bar window.
-
-- `last_swing_high_5s` - Most recent 5-second swing high price
-- `distance_from_swing_high_5s` - How far from that swing high
-- `last_swing_high_60s` - Most recent 60-second swing high
-- `distance_from_swing_high_60s` - How far from that swing high
-- (Same for swing lows)
-- `position_in_swing_range` - Where in swing range (0-1)
-- `bars_since_swing_high` - Time since last swing high
+**Medium-term ranges (5 minutes):**
+- `medium_range_high` - Highest price in 300-bar window
+- `medium_range_low` - Lowest price in 300-bar window
+- `medium_range_size` - Range size in points
+- `range_compression_ratio` - Short range / Medium range
+- `medium_range_retouches` - Binary: touching range boundaries
 
 **Why important?**
-Reversals often happen near swing highs/lows.
+Breakouts from consolidation ranges often lead to strong directional moves. Range compression indicates building pressure.
 
-### 4. Return Features (6 features)
+### 4. Return Features (5 features)
 **Purpose:** Measure momentum at different timeframes
 
-- `return_1s` - 1-second price change (%)
-- `return_5s` - 5-second price change (%)
-- `return_10s` - 10-second price change (%)
 - `return_30s` - 30-second price change (%)
 - `return_60s` - 1-minute price change (%)
 - `return_300s` - 5-minute price change (%)
+- `momentum_acceleration` - Change in momentum (return_60s - return_30s)
+- `momentum_consistency` - Standard deviation of recent returns
 
 **Example:**
 ```
-5 seconds ago: 4750.00
+30 seconds ago: 4750.00
 Now: 4751.00
-return_5s = (4751 - 4750) / 4750 = 0.00021 = 0.021%
+return_30s = (4751 - 4750) / 4750 = 0.00021 = 0.021%
 ```
 
-### 5. Volatility Features (8 features)
-**Purpose:** How much is price moving?
+**Why these timeframes?**
+Aligned with volatility mode timeframes and trading decision horizons.
+
+### 5. Volatility Features (6 features)
+**Purpose:** Measure market volatility for regime detection
 
 - `atr_30s` - Average True Range over 30 seconds
-  - Higher = more volatile
+  - Higher = more volatile, used for volatility regime classification
   
-- `atr_60s` / `atr_300s` - ATR at longer timeframes
+- `atr_300s` - Average True Range over 5 minutes
+  - Longer-term volatility context
   
-- `realized_vol_30s` - Standard deviation of returns (30s)
+- `volatility_regime` - Short-term ATR / Long-term ATR
+  - >1.2 = high volatility, <0.8 = low volatility, else normal
   
-- `realized_vol_60s` / `realized_vol_300s` - Longer-term vol
+- `volatility_acceleration` - Change in volatility over time
+  - Positive = volatility increasing, negative = decreasing
   
-- `vol_ratio_30_300` - Short-term vol / long-term vol
-  - >1 = volatility increasing, <1 = decreasing
+- `volatility_breakout` - Z-score of current volatility
+  - >2 = volatility breakout, <-2 = volatility compression
   
-- `atr_pct` - ATR as % of price (normalized)
+- `atr_percentile` - Where current ATR ranks in recent history
+  - 0.9 = 90th percentile (very high volatility)
+
+**Why critical for this system?**
+Volatility regime determines which of the 6 XGBoost models to use. Proper volatility classification is essential for model selection.
+
+### 6. Microstructure Features (6 features)
+**Purpose:** Bar-level price action and tick flow
+
+- `bar_range` - High - Low (absolute range)
+- `relative_bar_size` - Current bar range / recent average range
+  - >1.5 = large bar, <0.5 = small bar
+  
+- `uptick_pct_30s` - Percentage of upticks in last 30 seconds
+  - >0.6 = buying pressure, <0.4 = selling pressure
+  
+- `uptick_pct_60s` - Percentage of upticks in last 60 seconds
+  - Longer-term tick flow direction
+  
+- `bar_flow_consistency` - Consistency of tick direction within bars
+  - High = consistent flow, low = choppy action
+  
+- `directional_strength` - Net directional pressure
+  - Combines tick flow with bar characteristics
 
 **Why important?**
-Stop distances should adjust to volatility. High vol = wider stops needed.
+Microstructure features help identify the quality of price moves and potential continuation vs reversal patterns.
 
-### 6. Microstructure Features (8 features)
-**Purpose:** Bar-level price action
-
-- `bar_range` - High - Low
-- `bar_range_pct` - Range as % of price
-- `bar_body` - |Close - Open| (size of colored part of candle)
-- `body_ratio` - Body / Range (conviction indicator)
-  - 0.9 = strong directional move
-  - 0.1 = indecisive/choppy
-  
-- `tick_direction` - +1 (up), 0 (flat), -1 (down)
-- `consecutive_up` - How many up ticks in a row
-- `consecutive_down` - How many down ticks in a row
-- `net_ticks_60s` - Net directional ticks over 60 seconds
-  - +40 = strong buying, -40 = strong selling
-
-### 7. Time Features (10 features)
+### 7. Time Features (7 features)
 **Purpose:** Market behavior changes throughout the day
 
-- `hour` / `minute` - Time of day
-- `day_of_week` - Monday = 0, Friday = 4
-- `seconds_since_open` - Seconds since 9:30 AM
-  - 0-1800 = first 30 minutes (opening volatility)
-  
-- `seconds_until_close` - Seconds until 4:00 PM
-  - <1800 = last 30 minutes (closing volatility)
-  
-- `is_opening` - First 30 minutes flag (1 or 0)
-- `is_lunch` - Lunch period flag (11:30-1:30)
-- `is_close` - Last hour flag
-- `is_monday` / `is_friday` - Day of week flags
+**Session Period Indicators (Binary 0/1):**
+- `is_eth` - Extended Trading Hours (outside RTH)
+- `is_pre_open` - Pre-market period (7:30-9:30 CT)
+- `is_rth_open` - Regular Trading Hours opening (9:30-10:30 CT)
+- `is_morning` - Morning session (10:30-12:00 CT)
+- `is_lunch` - Lunch period (12:00-13:30 CT)
+- `is_afternoon` - Afternoon session (13:30-15:00 CT)
+- `is_rth_close` - Regular Trading Hours closing (15:00-16:00 CT)
 
-**Why important?**
-Market is different at open vs lunch vs close. Model needs to know.
+**Why binary encoding?**
+XGBoost handles binary features efficiently. Each session has distinct volatility and directional characteristics that affect the success of different trading modes.
+
+**Session Characteristics:**
+- **Opening:** High volatility, good for high-vol modes
+- **Morning:** Trending moves, good for directional trades
+- **Lunch:** Low volatility, good for low-vol modes
+- **Afternoon:** Mixed conditions, normal-vol modes
+- **Close:** High volatility, reversal patterns
 
 ## Feature Checklist
-Before training, ensure:
-- [ ] No NaN values (except first ~300 bars from rolling calcs)
-- [ ] Features are in reasonable ranges
-- [ ] Volume features use ratios (not raw counts)
-- [ ] Time features are correct for timezone (UTC for ES)
-- [ ] Swing features forward-fill properly
+Before XGBoost training, ensure:
+- [ ] All 43 features calculated correctly
+- [ ] NaN values within acceptable limits (≤35% for rolling calculations)
+- [ ] Volume features use ratios/slopes (not raw counts)
+- [ ] Volatility regime feature working for model selection
+- [ ] Time features properly identify session periods
+- [ ] Features validated against realistic market data ranges
+
+## Integration with Weighted Labeling
+- **43 features** work with **12 weighted labeling columns** (6 labels + 6 weights)
+- **Total output:** 61 columns (6 original + 12 labeling + 43 features)
+- **XGBoost ready:** Binary labels with sample weights for 6 specialized models
 
 ## Code Location
-`project/data_pipeline/features.py`
+`src/data_pipeline/features.py`
 
 ## Testing
-Run on small sample first (1000 bars) to verify calculations before scaling to full dataset.
+- **Integration test:** `tests/integration/test_final_integration_1000_bars.py`
+- **Feature tests:** `tests/unit/test_features_comprehensive.py`
+- **Performance validation:** `tests/validation/validate_performance.py`
+
+## Model Usage
+Each of the 6 XGBoost models uses:
+- **Same 43 features** as input
+- **Corresponding label column** as target (e.g., `label_low_vol_long`)
+- **Corresponding weight column** for sample weighting (e.g., `weight_low_vol_long`)
+- **Volatility regime feature** determines which model to use for prediction

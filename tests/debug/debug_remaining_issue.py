@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from project.data_pipeline.labeling import calculate_labels_for_all_profiles
+from src.data_pipeline.labeling import calculate_labels_for_all_profiles
 from simple_optimized_labeling import calculate_labels_for_all_profiles_optimized
 
 def debug_remaining_differences():

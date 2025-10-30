@@ -42,46 +42,61 @@ The project has been organized following software engineering best practices wit
 ## File Categories
 
 ### Production Files (Root Level)
-- `simple_optimized_labeling.py` - **MAIN**: Optimized labeling algorithm
-- `label_full_dataset.py` - **MAIN**: Full dataset processing script
-- `README.md` - Project documentation
+- `ec2_weighted_labeling_pipeline.py` - **MAIN**: Weighted labeling pipeline for EC2
+- `test_final_integration_1000_bars.py` - **MAIN TEST**: Complete integration testing
+- `run_comprehensive_validation.py` - **VALIDATION**: Complete validation suite
 
 ### Core Project (`project/`)
-- Original implementations and utilities
-- Data pipeline modules
-- Configuration and scripts
+- Weighted labeling system (6 volatility modes)
+- Feature engineering (43 features)
+- Pipeline orchestration and validation
 - Data storage directories
 
 ### Testing (`tests/`)
-- `validation/` - Algorithm correctness validation
+- `validation/` - Chunked processing and integration tests
+- `test_weighted_labeling_comprehensive.py` - Weight calculation validation
+- `test_features_comprehensive.py` - Feature engineering validation
 - `debug/` - Development debugging utilities (archived)
+
+### EC2 Deployment (`ec2_deployment_package/`)
+- Complete deployment archive
+- Configuration files and setup scripts
+- Monitoring and validation tools
 
 ### Documentation (`docs/`)
 - Technical documentation
-- Feature definitions
+- Performance validation reports
 - Analysis reports
 
 ### Archive (`archive/`)
-- Deprecated implementations
+- Deprecated implementations (original labeling system)
 - One-time analysis scripts
 - Historical reference code
 
 ## Usage Guidelines
 
 ### For Development
-1. Always validate changes: `python tests/validation/validate_optimization.py`
-2. Test on small samples first
-3. Use production files for actual processing
+1. Always validate changes: `python tests/integration/test_final_integration_1000_bars.py`
+2. Test on 1000-bar sample first with full integration
+3. Use comprehensive validation suite: `python tests/validation/run_comprehensive_validation.py`
+4. Run unit tests: `python -m pytest tests/unit/ -v`
 
 ### For Production
-1. Use root-level scripts: `simple_optimized_labeling.py`, `label_full_dataset.py`
-2. Validate before scaling to full dataset
-3. Monitor performance and results
+1. Use main entry point: `python main.py --input data.parquet --output processed.parquet`
+2. Deploy using EC2 deployment package in `deployment/ec2/`
+3. Monitor with provided monitoring tools
+4. Validate XGBoost format requirements with `--validate` flag
 
-### For Debugging
-1. Check `tests/debug/` for historical debugging approaches
-2. Create new debug scripts in `tests/debug/` if needed
-3. Archive debug scripts after issues are resolved
+### For Model Training
+1. Use weighted labeling output (12 columns: 6 labels + 6 weights)
+2. Train 6 separate XGBoost models with corresponding label/weight pairs
+3. Use 43 engineered features as input for all models
+4. Deploy ensemble with volatility regime detection
+
+### For Analysis
+1. Use scripts in `scripts/analysis/` for data analysis
+2. Use scripts in `scripts/utilities/` for utility functions
+3. Generate reports in `docs/reports/`
 
 ## Benefits of This Structure
 

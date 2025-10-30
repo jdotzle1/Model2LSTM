@@ -64,53 +64,67 @@ def volume_ratio_30s(volume):
     return volume / volume.rolling(30).mean()
 ```
 
-## Feature Engineering Specifics
+## Weighted Labeling Specifics
 
-### Volume Features - 4 functions:
+### Weight Calculation - Core functions:
+```python
+def _calculate_quality_weights(self, mae_ticks):
+    mae_ratio = mae_ticks / self.mode.stop_ticks
+    return np.clip(2.0 - (1.5 * mae_ratio), 0.5, 2.0)
+
+def _calculate_velocity_weights(self, seconds_to_target):
+    velocity_weights = 2.0 - (1.5 * (seconds_to_target - 300) / 600)
+    return np.clip(velocity_weights, 0.5, 2.0)
+
+def _calculate_time_decay(self, timestamps):
+    months_ago = timestamps.apply(lambda x: self._months_between(x, timestamps.max()))
+    return np.exp(-0.05 * months_ago)
+```
+
+### Feature Engineering - Core functions:
 ```python
 def volume_ratio_30s(volume):
     return volume / volume.rolling(30).mean()
 
-def volume_slope_30s(volume):
-    vol_ma = volume.rolling(5).mean()
-    return vol_ma.rolling(30).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0])
+def volatility_regime(atr_30s, atr_300s):
+    return atr_30s / atr_300s
 
-def volume_slope_5s(volume):
-    return volume.rolling(5).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0])
-
-def volume_exhaustion(volume):
-    ratio = volume_ratio_30s(volume)
-    slope = volume_slope_5s(volume)
-    return ratio * slope
+def position_in_short_range(close, short_range_high, short_range_low):
+    return (close - short_range_low) / (short_range_high - short_range_low)
 ```
 
 ### Key Points:
-- **4 functions, ~10 lines total**
-- **No classes, no config, no extensive validation**
-- **Direct calculations using pandas built-ins**
-- **Minimal comments - function names are self-documenting**
+- **Direct formulas** - no unnecessary abstractions
+- **Vectorized operations** - numpy/pandas built-ins
+- **Clear variable names** - self-documenting code
+- **Minimal validation** - basic checks only
 
 ## Testing Approach
-- **Single test file** with basic input/output validation
-- **No mocking, no fixtures** - use real small datasets
-- **Test core logic only** - don't test pandas built-ins
+- **Integration test** - test complete pipeline on 1000-bar sample
+- **Real data validation** - use actual market data patterns
+- **XGBoost format validation** - ensure output compatibility
+- **Performance testing** - validate on large datasets
 
 ## File Structure
 ```
 project/data_pipeline/
-├── features.py          # All 43 features in ~200 lines
-└── __init__.py         # Empty
+├── weighted_labeling.py    # 6 modes, 3 weight components
+├── features.py            # 43 features in 7 categories
+└── pipeline.py           # Integration orchestration
 
 tests/
-└── test_features.py    # Basic validation tests
+├── test_weighted_labeling_comprehensive.py  # Weight calculation tests
+├── test_features_comprehensive.py          # Feature validation tests
+└── test_final_integration_1000_bars.py     # Complete pipeline test
 ```
 
 ## Success Metrics
-- **Feature engineering module: <400 lines total** (guideline, not hard limit)
-- **Each feature: 1-3 lines of actual calculation**
-- **No abstraction layers** - direct pandas operations
-- **Readable by junior developers** - no complex patterns
-- **Prioritize correctness over line count** - get the requirements right first
+- **Weighted labeling: Binary labels + positive weights** for all 6 modes
+- **Feature engineering: 43 features** with acceptable NaN levels
+- **Integration: 61 total columns** (6 original + 12 labeling + 43 features)
+- **XGBoost ready: Proper format** for 6 specialized model training
+- **Performance: Chunked processing** for memory efficiency
+- **Prioritize correctness over line count** - get the weight formulas right
 
 ## Remember
 This is a **data processing pipeline**, not enterprise software. Write code like you're doing a quick analysis in a Jupyter notebook, then clean it up just enough to be reusable.

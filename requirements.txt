@@ -1,0 +1,21 @@
+# ES Trading Model - Production Dependencies
+
+# Core data processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=12.0.0  # For parquet support
+
+# Machine learning
+xgboost>=1.7.0
+scikit-learn>=1.3.0
+
+# Market data
+databento>=0.30.0
+
+# Utilities
+psutil>=5.9.0  # For memory monitoring
+pytz>=2023.3   # For timezone handling
+
+# Development and testing (optional)
+pytest>=7.4.0
+pytest-cov>=4.1.0
