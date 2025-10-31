@@ -12,11 +12,14 @@ import psutil
 from pathlib import Path
 from datetime import datetime
 
-def log_progress(message, progress_file="/tmp/es_processing/progress_2b.log"):
+def log_progress(message, progress_file="/tmp/es_30day_processing/progress_2b.log"):
     """Write progress message with timestamp"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     progress_msg = f"[{timestamp}] {message}"
     print(progress_msg)
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
     # Also write to progress file
     with open(progress_file, "a") as f:
@@ -25,7 +28,7 @@ def log_progress(message, progress_file="/tmp/es_processing/progress_2b.log"):
 
 def filter_parquet_to_rth():
     """Filter raw Parquet file to RTH only"""
-    work_dir = Path('/tmp/es_processing')
+    work_dir = Path('/tmp/es_30day_processing')
     raw_parquet = work_dir / "es_data_raw.parquet"
     rth_parquet = work_dir / "es_data_rth.parquet"
     progress_file = work_dir / "progress_2b.log"

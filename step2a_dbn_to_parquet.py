@@ -12,11 +12,14 @@ import psutil
 from pathlib import Path
 from datetime import datetime
 
-def log_progress(message, progress_file="/tmp/es_processing/progress_2a.log"):
+def log_progress(message, progress_file="/tmp/es_30day_processing/progress_2a.log"):
     """Write progress message with timestamp"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     progress_msg = f"[{timestamp}] {message}"
     print(progress_msg)
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
     # Also write to progress file
     with open(progress_file, "a") as f:
@@ -25,7 +28,7 @@ def log_progress(message, progress_file="/tmp/es_processing/progress_2a.log"):
 
 def convert_dbn_to_raw_parquet():
     """Convert DBN file to raw Parquet with NO modifications"""
-    work_dir = Path('/tmp/es_processing')
+    work_dir = Path('/tmp/es_30day_processing')
     dbn_file = work_dir / "es_data_30day.dbn.zst"
     parquet_file = work_dir / "es_data_raw.parquet"  # Raw, unfiltered
     progress_file = work_dir / "progress_2a.log"
@@ -78,7 +81,7 @@ def convert_dbn_to_raw_parquet():
         log_progress("🔄 Converting to DataFrame...")
         log_progress("   ⏳ THIS IS THE SLOW STEP - WILL TAKE 45-90 MINUTES")
         log_progress("   💡 Pure conversion - no filtering or timezone changes")
-        log_progress("   🔍 Monitor with: tail -f /tmp/es_processing/progress_2a.log")
+        log_progress("   🔍 Monitor with: tail -f /tmp/es_30day_processing/progress_2a.log")
         log_progress("")
         log_progress(f"   Started conversion at: {datetime.now().strftime('%H:%M:%S')}")
         
