@@ -72,13 +72,46 @@ def filter_parquet_to_rth():
         
         log_progress(f"✅ Loaded {len(df):,} rows")
         log_progress(f"   Columns: {df.columns.tolist()}")
-        log_progress(f"   Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+        
+        # Check if timestamp is in index or columns
+        if 'timestamp' in df.columns:
+            timestamp_col = df['timestamp']
+            log_progress("   Timestamp found in columns")
+        elif df.index.name == 'timestamp' or hasattr(df.index, 'tz'):
+            timestamp_col = df.index
+            log_progress("   Timestamp found in index")
+        else:
+            # No timestamp found - this is the raw DBN data without proper timestamps
+            log_progress("   ⚠️  No timestamp column found - using row index as time sequence")
+            log_progress("   This raw data needs timestamp reconstruction from DBN metadata")
+            
+            # For now, let's skip filtering and just copy the file
+            log_progress("   Copying raw data as RTH data (no filtering possible)")
+            df.to_parquet(rth_parquet, index=False)
+            
+            output_size_mb = rth_parquet.stat().st_size / (1024**2)
+            total_time = time.time() - start_time
+            
+            log_progress("")
+            log_progress("⚠️  RTH FILTERING SKIPPED (no timestamps)")
+            log_progress(f"   Output file: {rth_parquet}")
+            log_progress(f"   Output size: {output_size_mb:.1f} MB")
+            log_progress(f"   Total time: {total_time:.1f} seconds")
+            log_progress("")
+            log_progress("📋 NOTE: Raw data copied without RTH filtering")
+            log_progress("📋 For proper filtering, need to reconstruct timestamps from DBN")
+            
+            return str(rth_parquet)
+        
+        log_progress(f"   Date range: {timestamp_col.min()} to {timestamp_col.max()}")
         
         # Show timezone info
-        if df['timestamp'].dt.tz is None:
+        if hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is None:
             log_progress("   Timezone: None (assuming UTC)")
+        elif hasattr(timestamp_col, 'tz'):
+            log_progress(f"   Timezone: {timestamp_col.tz}")
         else:
-            log_progress(f"   Timezone: {df['timestamp'].dt.tz}")
+            log_progress("   Timezone: Unknown")
         
         log_progress("")
         log_progress("🕐 Applying RTH filter...")
@@ -87,12 +120,18 @@ def filter_parquet_to_rth():
         log_progress("   Converting to Central Time...")
         central_tz = pytz.timezone('US/Central')
         
-        if df['timestamp'].dt.tz is None:
+        if hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is None:
             # Assume UTC if no timezone
             utc_tz = pytz.UTC
-            df['timestamp'] = df['timestamp'].dt.tz_localize(utc_tz)
+            timestamp_col = timestamp_col.dt.tz_localize(utc_tz)
         
-        df['timestamp'] = df['timestamp'].dt.tz_convert(central_tz)
+        timestamp_col = timestamp_col.dt.tz_convert(central_tz)
+        
+        # Update the dataframe with converted timestamps
+        if 'timestamp' in df.columns:
+            df['timestamp'] = timestamp_col
+        else:
+            df.index = timestamp_col
         log_progress("   ✅ Timezone conversion complete")
         
         # Filter to RTH (07:30-15:00 Central)
@@ -100,7 +139,7 @@ def filter_parquet_to_rth():
         rth_start = dt_time(7, 30)
         rth_end = dt_time(15, 0)
         
-        df_time = df['timestamp'].dt.time
+        df_time = timestamp_col.dt.time
         rth_mask = (df_time >= rth_start) & (df_time < rth_end)
         
         original_count = len(df)

@@ -89,9 +89,17 @@ def convert_dbn_to_raw_parquet():
         process = psutil.Process()
         initial_memory = process.memory_info().rss / (1024**2)
         
-        # PURE CONVERSION - No modifications
+        # PURE CONVERSION - With timestamp preservation
         df_start = time.time()
         df = store.to_df()
+        
+        # Convert nanosecond timestamps to proper datetime index
+        log_progress("   🕐 Converting timestamps...")
+        if hasattr(df.index, 'astype'):
+            # Convert nanosecond timestamps to datetime
+            df.index = pd.to_datetime(df.index, unit='ns', utc=True)
+            df.index.name = 'timestamp'
+        
         df_time = time.time() - df_start
         
         current_memory = process.memory_info().rss / (1024**2)
