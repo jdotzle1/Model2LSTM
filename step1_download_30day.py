@@ -13,8 +13,8 @@ def download_30day_data():
     s3_key = "raw-data/databento/"  # Will need to update with actual filename
     
     # Create work directory
-    work_dir = Path('/tmp/es_processing')
-    work_dir.mkdir(exist_ok=True)
+    work_dir = Path('/tmp/es_30day_processing')
+    work_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"🚀 STEP 1: DOWNLOADING 30-DAY ES DATA FROM S3")
     print(f"Bucket: s3://{bucket_name}")
