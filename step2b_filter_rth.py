@@ -106,12 +106,12 @@ def filter_parquet_to_rth():
         log_progress(f"   Date range: {timestamp_col.min()} to {timestamp_col.max()}")
         
         # Show timezone info
-        if hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is None:
-            log_progress("   Timezone: None (assuming UTC)")
-        elif hasattr(timestamp_col, 'tz'):
+        if hasattr(timestamp_col, 'tz') and timestamp_col.tz is not None:
             log_progress(f"   Timezone: {timestamp_col.tz}")
+        elif hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is not None:
+            log_progress(f"   Timezone: {timestamp_col.dt.tz}")
         else:
-            log_progress("   Timezone: Unknown")
+            log_progress("   Timezone: None (assuming UTC)")
         
         log_progress("")
         log_progress("🕐 Applying RTH filter...")
@@ -120,8 +120,13 @@ def filter_parquet_to_rth():
         log_progress("   Converting to Central Time...")
         central_tz = pytz.timezone('US/Central')
         
-        if hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is None:
-            # Assume UTC if no timezone
+        # Handle timezone conversion properly
+        if hasattr(timestamp_col, 'tz') and timestamp_col.tz is None:
+            # DatetimeIndex without timezone - assume UTC
+            utc_tz = pytz.UTC
+            timestamp_col = timestamp_col.tz_localize(utc_tz)
+        elif hasattr(timestamp_col, 'dt') and timestamp_col.dt.tz is None:
+            # Series without timezone - assume UTC
             utc_tz = pytz.UTC
             timestamp_col = timestamp_col.dt.tz_localize(utc_tz)
         
