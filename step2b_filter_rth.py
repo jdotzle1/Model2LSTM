@@ -130,7 +130,13 @@ def filter_parquet_to_rth():
             utc_tz = pytz.UTC
             timestamp_col = timestamp_col.dt.tz_localize(utc_tz)
         
-        timestamp_col = timestamp_col.dt.tz_convert(central_tz)
+        # Convert timezone (different syntax for DatetimeIndex vs Series)
+        if hasattr(timestamp_col, 'tz_convert'):
+            # DatetimeIndex
+            timestamp_col = timestamp_col.tz_convert(central_tz)
+        else:
+            # Series
+            timestamp_col = timestamp_col.dt.tz_convert(central_tz)
         
         # Update the dataframe with converted timestamps
         if 'timestamp' in df.columns:
@@ -144,7 +150,13 @@ def filter_parquet_to_rth():
         rth_start = dt_time(7, 30)
         rth_end = dt_time(15, 0)
         
-        df_time = timestamp_col.dt.time
+        # Extract time component (different syntax for DatetimeIndex vs Series)
+        if hasattr(timestamp_col, 'time'):
+            # DatetimeIndex
+            df_time = timestamp_col.time
+        else:
+            # Series
+            df_time = timestamp_col.dt.time
         rth_mask = (df_time >= rth_start) & (df_time < rth_end)
         
         original_count = len(df)
