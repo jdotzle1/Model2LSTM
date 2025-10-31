@@ -58,21 +58,11 @@ def test_full_dataset_logic():
             utc_tz = pytz.UTC
             timestamps = timestamps.dt.tz_localize(utc_tz)
         
-        # Convert timezone (different syntax for DatetimeIndex vs Series)
-        if hasattr(timestamps, 'tz_convert'):
-            # DatetimeIndex
-            central_timestamps = timestamps.tz_convert(central_tz)
-        else:
-            # Series
-            central_timestamps = timestamps.dt.tz_convert(central_tz)
+        # Convert timezone - for Series, always use .dt accessor
+        central_timestamps = timestamps.dt.tz_convert(central_tz)
         
-        # Extract time component (different syntax for DatetimeIndex vs Series)
-        if hasattr(central_timestamps, 'time'):
-            # DatetimeIndex
-            df_time = central_timestamps.time
-        else:
-            # Series
-            df_time = central_timestamps.dt.time
+        # Extract time component - for Series, always use .dt accessor
+        df_time = central_timestamps.dt.time
         
         # Filter to RTH (07:30-15:00 Central) - exact logic from step2b
         rth_start_time = dt_time(7, 30)
