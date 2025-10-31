@@ -125,8 +125,19 @@ class InputDataFrame:
     
     def _validate_rth_data(self) -> None:
         """Validate that data is RTH-only (07:30-15:00 CT)"""
-        # Convert timestamp to time for checking
-        times = pd.to_datetime(self.df['timestamp']).dt.time
+        import pytz
+        
+        # Convert timestamp to Central Time first, then extract time
+        timestamps = pd.to_datetime(self.df['timestamp'])
+        
+        # Handle timezone conversion properly
+        if timestamps.dt.tz is None:
+            # Assume UTC if no timezone
+            timestamps = timestamps.dt.tz_localize(pytz.UTC)
+        
+        # Convert to Central Time
+        central_times = timestamps.dt.tz_convert(pytz.timezone('US/Central'))
+        times = central_times.dt.time
         
         # Check if all times are within RTH
         rth_mask = (times >= self.RTH_START) & (times <= self.RTH_END)
