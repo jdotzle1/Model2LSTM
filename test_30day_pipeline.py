@@ -57,6 +57,33 @@ def test_30day_pipeline():
     print(f"\n📋 Sample data:")
     print(df.head(3))
     
+    # Check timezone of timestamp column
+    print(f"\n🕐 Timestamp analysis:")
+    print(f"   Timestamp dtype: {df['timestamp'].dtype}")
+    print(f"   Has timezone: {hasattr(df['timestamp'].dt, 'tz') and df['timestamp'].dt.tz is not None}")
+    if hasattr(df['timestamp'].dt, 'tz') and df['timestamp'].dt.tz is not None:
+        print(f"   Timezone: {df['timestamp'].dt.tz}")
+        
+        # Convert to Central Time to see what the weighted labeling system should see
+        import pytz
+        central_times = df['timestamp'].dt.tz_convert(pytz.timezone('US/Central'))
+        sample_times = central_times.dt.time.head(10)
+        print(f"   Sample Central times: {sample_times.tolist()}")
+        
+        # Check RTH compliance in Central Time
+        from datetime import time
+        rth_start = time(7, 30)
+        rth_end = time(15, 0)
+        central_time_only = central_times.dt.time
+        rth_mask = (central_time_only >= rth_start) & (central_time_only <= rth_end)
+        non_rth_count = (~rth_mask).sum()
+        print(f"   Non-RTH bars in Central Time: {non_rth_count:,}")
+        
+        if non_rth_count > 0:
+            print("   ⚠️  Data contains non-RTH times - need to fix timezone handling")
+        else:
+            print("   ✅ All data is within RTH when converted to Central Time")
+    
     try:
         # Step 1: Weighted Labeling (6 volatility modes)
         print(f"\n🏷️  STEP 1: WEIGHTED LABELING")
