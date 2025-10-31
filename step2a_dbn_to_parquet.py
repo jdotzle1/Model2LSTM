@@ -26,7 +26,7 @@ def log_progress(message, progress_file="/tmp/es_processing/progress_2a.log"):
 def convert_dbn_to_raw_parquet():
     """Convert DBN file to raw Parquet with NO modifications"""
     work_dir = Path('/tmp/es_processing')
-    dbn_file = work_dir / "es_data.dbn.zst"
+    dbn_file = work_dir / "es_data_30day.dbn.zst"
     parquet_file = work_dir / "es_data_raw.parquet"  # Raw, unfiltered
     progress_file = work_dir / "progress_2a.log"
     
