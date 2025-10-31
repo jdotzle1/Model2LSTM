@@ -95,10 +95,26 @@ def convert_dbn_to_raw_parquet():
         
         # Convert nanosecond timestamps to proper datetime index
         log_progress("   🕐 Converting timestamps...")
-        if hasattr(df.index, 'astype'):
-            # Convert nanosecond timestamps to datetime
-            df.index = pd.to_datetime(df.index, unit='ns', utc=True)
-            df.index.name = 'timestamp'
+        log_progress(f"   Original index type: {type(df.index)}")
+        log_progress(f"   Original index values: {df.index[:3]}")
+        
+        # The timestamps are in the metadata, need to reconstruct
+        start_ns = metadata.start
+        end_ns = metadata.end
+        total_rows = len(df)
+        
+        # Create timestamp range from start to end
+        timestamps = pd.date_range(
+            start=pd.to_datetime(start_ns, unit='ns', utc=True),
+            end=pd.to_datetime(end_ns, unit='ns', utc=True),
+            periods=total_rows
+        )
+        
+        df.index = timestamps
+        df.index.name = 'timestamp'
+        
+        log_progress(f"   New index type: {type(df.index)}")
+        log_progress(f"   New index values: {df.index[:3]}")
         
         df_time = time.time() - df_start
         
@@ -117,10 +133,11 @@ def convert_dbn_to_raw_parquet():
         for i, row in df.head(3).iterrows():
             log_progress(f"   Row {i}: {row.to_dict()}")
         
-        # Save to Parquet - NO MODIFICATIONS
+        # Save to Parquet - WITH TIMESTAMPS
         log_progress("")
         log_progress("💾 Saving raw data to Parquet...")
-        df.to_parquet(parquet_file, index=False)
+        log_progress("   Including timestamp index in Parquet file...")
+        df.to_parquet(parquet_file, index=True)  # Save WITH index (timestamps)
         
         # Final stats
         output_size_mb = parquet_file.stat().st_size / (1024**2)
