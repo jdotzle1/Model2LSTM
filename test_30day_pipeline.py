@@ -71,9 +71,9 @@ def test_30day_pipeline():
         print(f"   Sample Central times: {sample_times.tolist()}")
         
         # Check RTH compliance in Central Time
-        from datetime import time
-        rth_start = time(7, 30)
-        rth_end = time(15, 0)
+        from datetime import time as dt_time
+        rth_start = dt_time(7, 30)
+        rth_end = dt_time(15, 0)
         central_time_only = central_times.dt.time
         rth_mask = (central_time_only >= rth_start) & (central_time_only <= rth_end)
         non_rth_count = (~rth_mask).sum()
