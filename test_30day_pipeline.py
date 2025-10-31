@@ -48,6 +48,11 @@ def test_30day_pipeline():
     
     print(f"✅ All required OHLCV columns present")
     
+    # Convert timestamp index to column (required by weighted labeling system)
+    print(f"\n🕐 Converting timestamp index to column...")
+    df = df.reset_index()  # This moves the timestamp index to a 'timestamp' column
+    print(f"   New columns: {df.columns.tolist()}")
+    
     # Sample data check
     print(f"\n📋 Sample data:")
     print(df.head(3))
