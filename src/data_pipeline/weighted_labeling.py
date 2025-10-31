@@ -906,7 +906,7 @@ class WeightedLabelingEngine:
                 memory_limit_gb=self.config.memory_limit_gb
             )
     
-    def process_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+    def process_dataframe(self, df: pd.DataFrame, validate_performance: bool = True) -> pd.DataFrame:
         """
         Process DataFrame through complete weighted labeling pipeline with performance monitoring
         
@@ -988,9 +988,10 @@ class WeightedLabelingEngine:
                         # Don't raise error for QA issues, just warn
                         print("  Note: Processing completed but data quality should be reviewed")
                 
-                # Validate performance requirements
-                from .performance_monitor import validate_performance_requirements
-                validate_performance_requirements(self.performance_monitor)
+                # Validate performance requirements (optional for testing)
+                if validate_performance:
+                    from .performance_monitor import validate_performance_requirements
+                    validate_performance_requirements(self.performance_monitor)
             
             return result_df
             
