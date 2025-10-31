@@ -170,13 +170,13 @@ def filter_parquet_to_rth():
         # Convert back to UTC for consistency
         log_progress("   Converting back to UTC...")
         utc_tz = pytz.UTC
-        df_filtered['timestamp'] = df_filtered['timestamp'].dt.tz_convert(utc_tz)
+        df_filtered.index = df_filtered.index.tz_convert(utc_tz)
         log_progress("   ✅ RTH filtering complete")
         
         # Save filtered data
         log_progress("")
         log_progress("💾 Saving RTH-filtered data...")
-        df_filtered.to_parquet(rth_parquet, index=False)
+        df_filtered.to_parquet(rth_parquet, index=True)  # Save WITH timestamp index
         
         # Final stats
         output_size_mb = rth_parquet.stat().st_size / (1024**2)
