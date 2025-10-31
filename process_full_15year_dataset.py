@@ -40,9 +40,9 @@ def download_full_dataset_from_s3():
     print("\n📥 DOWNLOADING FULL 15-YEAR DATASET")
     print("=" * 50)
     
-    # Update these with your actual S3 details
-    bucket_name = "your-15year-bucket"  # Replace with actual bucket name
-    s3_key = "raw-data/es_15year_data.dbn.zst"  # Replace with actual key
+    # Actual S3 details for the full dataset
+    bucket_name = "es-1-second-data"
+    s3_key = "raw-data/databento/glbx-mdp3-20100606-20251021.ohlcv-1s.dbn.zst"
     
     local_file = Path("/tmp/es_full_processing/es_15year_data.dbn.zst")
     
@@ -55,30 +55,120 @@ def download_full_dataset_from_s3():
         print(f"✅ File already exists ({size_gb:.1f} GB)")
         return str(local_file)
     
-    print("⚠️  For now, using placeholder - update S3 details above")
-    print("📋 To download manually:")
-    print(f"   aws s3 cp s3://{bucket_name}/{s3_key} {local_file}")
-    
-    # For testing, let's use a smaller sample or create a placeholder
-    return None
+    try:
+        s3_client = boto3.client('s3')
+        
+        # Get file info
+        print("📊 Getting file information...")
+        response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+        file_size = response['ContentLength']
+        file_size_gb = file_size / (1024**3)
+        
+        print(f"📦 File size: {file_size_gb:.2f} GB")
+        print(f"📅 Date range: 2010-06-06 to 2025-10-21 (15+ years)")
+        print("⏳ Download will take 5-15 minutes...")
+        
+        start_time = time.time()
+        
+        # Download the file
+        s3_client.download_file(bucket_name, s3_key, str(local_file))
+        
+        download_time = time.time() - start_time
+        download_speed = file_size_gb / (download_time / 60)  # GB/min
+        
+        print(f"✅ Download complete!")
+        print(f"   Time: {download_time/60:.1f} minutes")
+        print(f"   Speed: {download_speed:.1f} GB/min")
+        print(f"   Local file: {local_file}")
+        
+        return str(local_file)
+        
+    except Exception as e:
+        print(f"❌ Download failed: {e}")
+        print("📋 Manual download command:")
+        print(f"   aws s3 cp s3://{bucket_name}/{s3_key} {local_file}")
+        return None
 
-def process_full_dataset_optimized():
+def process_full_dataset_optimized(input_file=None):
     """Process the full dataset optimized for your 68GB RAM instance"""
     print("\n🔄 PROCESSING FULL 15-YEAR DATASET")
     print("=" * 50)
     
-    # For now, let's test with a larger sample to validate the approach
-    # You can replace this with the actual full dataset path
-    
-    # Option 1: Use existing 30-day sample scaled up for testing
-    test_file = Path("project/data/processed/es_30day_rth.parquet")
-    
-    if not test_file.exists():
-        print("❌ Test file not found. Run the 30-day pipeline first.")
-        return None
-    
-    print("🧪 TESTING WITH 30-DAY SAMPLE (scaled processing)")
-    print("   (Replace with full dataset once S3 access is configured)")
+    if input_file:
+        # Process actual full dataset
+        dbn_file = Path(input_file)
+        print(f"🗂️  Processing full dataset: {dbn_file}")
+        
+        if not dbn_file.exists():
+            print(f"❌ Input file not found: {dbn_file}")
+            return None
+        
+        # Convert DBN to DataFrame with timestamps
+        print("📖 Loading and converting DBN file...")
+        print("   ⏳ This will take 10-30 minutes for the full dataset...")
+        
+        try:
+            import databento as db
+            
+            conversion_start = time.time()
+            
+            # Open DBN store
+            store = db.DBNStore.from_file(str(dbn_file))
+            metadata = store.metadata
+            
+            print(f"📊 Dataset: {metadata.dataset}")
+            print(f"📅 Period: {metadata.start} to {metadata.end}")
+            
+            # Convert to DataFrame
+            df = store.to_df()
+            
+            # Add proper timestamps
+            if hasattr(df.index, 'astype'):
+                start_ns = metadata.start
+                end_ns = metadata.end
+                total_rows = len(df)
+                
+                timestamps = pd.date_range(
+                    start=pd.to_datetime(start_ns, unit='ns', utc=True),
+                    end=pd.to_datetime(end_ns, unit='ns', utc=True),
+                    periods=total_rows
+                )
+                
+                df.index = timestamps
+                df.index.name = 'timestamp'
+            
+            # Convert to column format
+            df = df.reset_index()
+            
+            conversion_time = time.time() - conversion_start
+            
+            print(f"✅ DBN conversion complete!")
+            print(f"   Rows: {len(df):,}")
+            print(f"   Conversion time: {conversion_time/60:.1f} minutes")
+            
+        except Exception as e:
+            print(f"❌ DBN conversion failed: {e}")
+            return None
+            
+    else:
+        # Use test file for validation
+        test_file = Path("project/data/processed/es_30day_rth.parquet")
+        
+        if not test_file.exists():
+            print("❌ Test file not found. Run the 30-day pipeline first.")
+            return None
+        
+        print("🧪 TESTING WITH 30-DAY SAMPLE (scaled processing)")
+        
+        # Load test data
+        print("📖 Loading test data...")
+        df = pd.read_parquet(test_file)
+        
+        # Convert timestamp index to column if needed
+        if 'timestamp' not in df.columns:
+            df = df.reset_index()
+        
+        print(f"📊 Loaded {len(df):,} rows for testing")
     
     try:
         # Import processing modules
@@ -161,6 +251,54 @@ def process_full_dataset_optimized():
         traceback.print_exc()
         return None
 
+def upload_full_results(processed_file):
+    """Upload the processed full dataset results"""
+    print("\n📤 UPLOADING FULL DATASET RESULTS")
+    print("=" * 50)
+    
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = "es-1-second-data"  # Same bucket as source
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        s3_key = f"processed-data/es_15year_labeled_features_{timestamp}.parquet"
+        
+        file_size_gb = Path(processed_file).stat().st_size / (1024**3)
+        
+        print(f"📥 Local: {processed_file}")
+        print(f"📤 S3: s3://{bucket_name}/{s3_key}")
+        print(f"📊 Size: {file_size_gb:.1f} GB")
+        print("⏳ Upload will take 10-30 minutes...")
+        
+        start_time = time.time()
+        
+        s3_client.upload_file(
+            processed_file,
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                'Metadata': {
+                    'source': 'full_15year_processing',
+                    'date_range': '2010-06-06_to_2025-10-21',
+                    'processing_date': timestamp,
+                    'features': '43',
+                    'labels': '6',
+                    'weights': '6'
+                }
+            }
+        )
+        
+        upload_time = time.time() - start_time
+        
+        print(f"✅ Upload complete!")
+        print(f"   Time: {upload_time/60:.1f} minutes")
+        print(f"   S3 URL: s3://{bucket_name}/{s3_key}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        return False
+
 def create_full_dataset_plan():
     """Create a detailed plan for processing the actual full dataset"""
     print("\n📋 FULL DATASET PROCESSING PLAN")
@@ -213,16 +351,35 @@ def main():
             print(f"📁 Test output: {result}")
         
     elif choice == "2":
-        print("\n⚠️  Full dataset processing requires:")
-        print("   1. S3 bucket/key details")
-        print("   2. ~30 hours processing time")
-        print("   3. Confirmation to proceed")
+        print("\n⚠️  FULL DATASET PROCESSING:")
+        print("   📦 File: s3://es-1-second-data/raw-data/databento/glbx-mdp3-20100606-20251021.ohlcv-1s.dbn.zst")
+        print("   📊 Size: 1.3 GB compressed → ~6 GB processed")
+        print("   ⏱️  Time: ~20 hours total (download + processing)")
+        print("   💾 Memory: ~40 GB peak usage")
+        print()
         
-        confirm = input("\nProceed with full dataset? (yes/no): ")
+        confirm = input("Proceed with full 15-year dataset processing? (yes/no): ")
         if confirm.lower() == "yes":
-            # This would call the actual full dataset processing
-            print("🚀 Starting full dataset processing...")
-            print("📋 Update S3 details in the script first!")
+            print("\n🚀 STARTING FULL DATASET PROCESSING...")
+            
+            # Download the full dataset
+            input_file = download_full_dataset_from_s3()
+            if not input_file:
+                print("❌ Download failed. Cannot proceed.")
+                return
+            
+            # Process the full dataset
+            result = process_full_dataset_optimized(input_file)
+            if result:
+                print(f"\n🎉 FULL DATASET PROCESSING COMPLETE!")
+                print(f"📁 Output: {result}")
+                
+                # Upload to S3
+                upload_choice = input("\nUpload results to S3? (yes/no): ")
+                if upload_choice.lower() == "yes":
+                    upload_full_results(result)
+            else:
+                print("\n❌ Full dataset processing failed")
         else:
             print("❌ Full dataset processing cancelled")
     
