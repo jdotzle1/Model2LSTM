@@ -226,6 +226,14 @@ def process_monthly_data(file_info):
         df = df.reset_index()
         print(f"   ✅ Converted {len(df):,} rows")
         
+        # Clean data quality issues
+        from fix_data_quality_issues import clean_price_data, validate_cleaned_data
+        df = clean_price_data(df)
+        
+        if not validate_cleaned_data(df):
+            print(f"   ❌ Data validation failed after cleaning")
+            return None
+        
         # Step 2: Filter to RTH
         print(f"   🕐 Filtering to RTH...")
         central_tz = pytz.timezone('US/Central')
