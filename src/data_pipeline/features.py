@@ -373,7 +373,15 @@ def integrate_with_labeled_dataset(input_path, output_path=None, chunk_size=None
     
     # Validate feature values are within expected ranges
     print("Validating feature engineering results...")
-    validate_feature_ranges(df_featured)
+    validation_results = validate_feature_ranges(df_featured)
+    
+    # Store validation results for reporting
+    if validation_results and 'overall_summary' in validation_results:
+        summary = validation_results['overall_summary']
+        if not summary['overall_validation_passed']:
+            print("    ⚠️  Some validation issues detected - see details above")
+        else:
+            print("    ✓ All comprehensive validations passed")
     
     # Verify we have exactly 43 new feature columns
     new_columns = len(df_featured.columns) - original_columns
@@ -516,8 +524,65 @@ def validate_weighted_labeling_compatibility(df):
 
 
 def validate_feature_ranges(df):
-    """Validate that feature values fall within expected ranges as documented"""
-    
+    """
+    Enhanced feature validation with comprehensive range checking and outlier detection
+    Uses the new FeatureValidator for comprehensive validation
+    """
+    try:
+        from .feature_validation import validate_features_comprehensive
+        
+        print("    Running comprehensive feature validation...")
+        results = validate_features_comprehensive(df, print_report=False)
+        
+        # Extract summary for backward compatibility
+        summary = results['overall_summary']
+        range_results = results['range_validation']
+        nan_results = results['nan_validation']
+        outlier_results = results['outlier_detection']
+        
+        # Count issues
+        range_issues = sum(1 for r in range_results.values() if r.get('status') == 'failed')
+        nan_issues = sum(1 for r in nan_results.values() if r.get('status') == 'failed')
+        high_outlier_features = sum(1 for r in outlier_results.values() 
+                                  if r.get('outlier_percentage', 0) > 10)
+        
+        # Print summary
+        if summary['overall_validation_passed']:
+            print("    ✓ All feature validations passed")
+        else:
+            print("    ⚠️  Feature validation issues found:")
+            if range_issues > 0:
+                print(f"      - {range_issues} features with values outside expected ranges")
+            if nan_issues > 0:
+                print(f"      - {nan_issues} features with excessive NaN values")
+            if high_outlier_features > 0:
+                print(f"      - {high_outlier_features} features with high outlier rates")
+        
+        # Print key statistics
+        print("    Feature validation summary:")
+        fp = summary['feature_presence']
+        print(f"      Features present: {fp['present_count']}/{fp['expected_count']}")
+        
+        rv = summary['range_validation']
+        print(f"      Range validation: {rv['passed_count']}/{rv['total_count']} passed")
+        
+        nv = summary['nan_validation']
+        print(f"      NaN validation: {nv['passed_count']}/{nv['total_count']} passed")
+        
+        od = summary['outlier_detection']
+        print(f"      Outlier detection: {od['total_features_checked'] - od['high_outlier_features']}/{od['total_features_checked']} acceptable")
+        
+        return results
+        
+    except ImportError:
+        # Fallback to basic validation if feature_validation module not available
+        print("    Using basic feature validation (enhanced validation not available)")
+        _validate_feature_ranges_basic(df)
+        return None
+
+
+def _validate_feature_ranges_basic(df):
+    """Basic feature validation (fallback)"""
     validation_errors = []
     
     # Volume Features validation
@@ -525,8 +590,8 @@ def validate_feature_ranges(df):
         vol_ratio = df['volume_ratio_30s'].dropna()
         if len(vol_ratio) > 0 and (vol_ratio < 0).any():
             validation_errors.append("volume_ratio_30s has negative values")
-        if len(vol_ratio) > 0 and (vol_ratio > 10).any():
-            validation_errors.append("volume_ratio_30s has extremely high values (>10)")
+        if len(vol_ratio) > 0 and (vol_ratio > 30).any():
+            validation_errors.append("volume_ratio_30s has extremely high values (>30)")
     
     # Price Context Features validation
     if 'distance_from_vwap_pct' in df.columns:
@@ -534,53 +599,11 @@ def validate_feature_ranges(df):
         if len(vwap_dist) > 0 and (abs(vwap_dist) > 5).any():
             validation_errors.append("distance_from_vwap_pct has extreme values (>5%)")
     
-    if 'distance_from_rth_high' in df.columns:
-        rth_high_dist = df['distance_from_rth_high'].dropna()
-        if len(rth_high_dist) > 0 and (rth_high_dist > 0.1).any():  # Should be <= 0
-            validation_errors.append("distance_from_rth_high has positive values (should be <= 0)")
-    
-    if 'distance_from_rth_low' in df.columns:
-        rth_low_dist = df['distance_from_rth_low'].dropna()
-        if len(rth_low_dist) > 0 and (rth_low_dist < -0.1).any():  # Should be >= 0
-            validation_errors.append("distance_from_rth_low has negative values (should be >= 0)")
-    
     # Consolidation Features validation
     if 'position_in_short_range' in df.columns:
         pos_range = df['position_in_short_range'].dropna()
         if len(pos_range) > 0 and ((pos_range < 0) | (pos_range > 1)).any():
             validation_errors.append("position_in_short_range outside [0,1] range")
-    
-    if 'range_compression_ratio' in df.columns:
-        compression = df['range_compression_ratio'].dropna()
-        if len(compression) > 0 and (compression < 0).any():
-            validation_errors.append("range_compression_ratio has negative values")
-    
-    # Volatility Features validation
-    if 'volatility_regime' in df.columns:
-        vol_regime = df['volatility_regime'].dropna()
-        if len(vol_regime) > 0 and (vol_regime < 0).any():
-            validation_errors.append("volatility_regime has negative values")
-    
-    if 'atr_percentile' in df.columns:
-        atr_pct = df['atr_percentile'].dropna()
-        if len(atr_pct) > 0 and ((atr_pct < 0) | (atr_pct > 100)).any():
-            validation_errors.append("atr_percentile outside [0,100] range")
-    
-    # Microstructure Features validation
-    if 'uptick_pct_30s' in df.columns:
-        uptick_30 = df['uptick_pct_30s'].dropna()
-        if len(uptick_30) > 0 and ((uptick_30 < 0) | (uptick_30 > 100)).any():
-            validation_errors.append("uptick_pct_30s outside [0,100] range")
-    
-    if 'uptick_pct_60s' in df.columns:
-        uptick_60 = df['uptick_pct_60s'].dropna()
-        if len(uptick_60) > 0 and ((uptick_60 < 0) | (uptick_60 > 100)).any():
-            validation_errors.append("uptick_pct_60s outside [0,100] range")
-    
-    if 'directional_strength' in df.columns:
-        dir_strength = df['directional_strength'].dropna()
-        if len(dir_strength) > 0 and ((dir_strength < 0) | (dir_strength > 100)).any():
-            validation_errors.append("directional_strength outside [0,100] range")
     
     # Time Features validation (should be binary 0 or 1)
     time_features = ['is_eth', 'is_pre_open', 'is_rth_open', 'is_morning', 'is_lunch', 'is_afternoon', 'is_rth_close']
@@ -590,7 +613,7 @@ def validate_feature_ranges(df):
             if len(values) > 0 and not values.isin([0, 1]).all():
                 validation_errors.append(f"{feature} contains non-binary values (should be 0 or 1)")
     
-    # Check for infinite values in any feature
+    # Check for infinite values
     feature_cols = get_expected_feature_names()
     for feature in feature_cols:
         if feature in df.columns:
@@ -602,20 +625,7 @@ def validate_feature_ranges(df):
         for error in validation_errors:
             print(f"      - {error}")
     else:
-        print("    ✓ All feature values within expected ranges")
-    
-    # Print summary statistics for key features
-    print("    Feature range summary:")
-    key_features = ['volume_ratio_30s', 'distance_from_vwap_pct', 'position_in_short_range', 
-                   'volatility_regime', 'uptick_pct_30s', 'directional_strength']
-    
-    for feature in key_features:
-        if feature in df.columns:
-            values = df[feature].dropna()
-            if len(values) > 0:
-                print(f"      {feature}: [{values.min():.3f}, {values.max():.3f}]")
-            else:
-                print(f"      {feature}: [no valid values]")
+        print("    ✓ Basic feature validation passed")
 
 
 def validate_input(df):

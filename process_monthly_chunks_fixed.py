@@ -114,25 +114,41 @@ def generate_monthly_file_list():
     return monthly_files
 
 def check_existing_processed_files(monthly_files):
-    """Check which files are already processed in S3"""
+    """Check which files are already processed in S3 with enhanced discovery"""
     log_progress("🔍 CHECKING EXISTING PROCESSED FILES")
     
     try:
         s3_client = boto3.client('s3')
         bucket_name = "es-1-second-data"
         
-        response = s3_client.list_objects_v2(
-            Bucket=bucket_name,
-            Prefix="processed-data/monthly/"
-        )
+        # Try multiple prefixes for processed files
+        prefixes_to_check = [
+            "processed-data/monthly/",
+            "processed/monthly/", 
+            "monthly-processed/",
+            "output/monthly/"
+        ]
         
         existing_files = set()
-        if 'Contents' in response:
-            for obj in response['Contents']:
-                filename = obj['Key'].split('/')[-1]
-                if 'monthly_' in filename:
-                    month_part = filename.split('monthly_')[1].split('_')[0]
-                    existing_files.add(month_part)
+        
+        for prefix in prefixes_to_check:
+            try:
+                paginator = s3_client.get_paginator('list_objects_v2')
+                page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+                
+                for page in page_iterator:
+                    if 'Contents' in page:
+                        for obj in page['Contents']:
+                            filename = obj['Key'].split('/')[-1]
+                            
+                            # Extract month from various filename patterns
+                            month_str = extract_month_from_filename(filename)
+                            if month_str:
+                                existing_files.add(month_str)
+                                
+            except Exception as e:
+                log_progress(f"   ⚠️  Could not check prefix {prefix}: {e}")
+                continue
         
         to_process = []
         already_done = []
@@ -146,11 +162,41 @@ def check_existing_processed_files(monthly_files):
         log_progress(f"✅ Already processed: {len(already_done)} months")
         log_progress(f"🔄 Need to process: {len(to_process)} months")
         
+        if already_done:
+            log_progress(f"   Sample processed: {', '.join(sorted(already_done)[:5])}")
+        
         return to_process
         
     except Exception as e:
         log_progress(f"⚠️  Could not check existing files: {e}")
+        log_progress(f"   Proceeding with all {len(monthly_files)} files")
         return monthly_files
+
+def extract_month_from_filename(filename):
+    """Extract month string from various filename patterns"""
+    import re
+    
+    # Pattern 1: monthly_YYYY-MM_timestamp.parquet
+    match = re.search(r'monthly_(\d{4}-\d{2})_', filename)
+    if match:
+        return match.group(1)
+    
+    # Pattern 2: YYYY-MM_processed.parquet
+    match = re.search(r'(\d{4}-\d{2})_processed', filename)
+    if match:
+        return match.group(1)
+    
+    # Pattern 3: es_YYYY_MM_processed.parquet
+    match = re.search(r'es_(\d{4})_(\d{2})_processed', filename)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}"
+    
+    # Pattern 4: YYYYMM.parquet
+    match = re.search(r'(\d{4})(\d{2})\.parquet', filename)
+    if match:
+        return f"{match.group(1)}-{match.group(2)}"
+    
+    return None
 
 def process_single_month(file_info):
     """Process a single month of data"""
@@ -190,32 +236,110 @@ def process_single_month(file_info):
         return None
 
 def download_monthly_file(file_info):
-    """Download a single monthly file"""
+    """Download a single monthly file with retry logic and validation"""
     bucket_name = "es-1-second-data"
     s3_key = file_info['s3_key']
     local_file = Path(file_info['local_file'])
     
     if local_file.exists():
-        log_progress(f"   ✅ Already downloaded")
-        return True
+        # Validate existing file
+        if validate_downloaded_file(local_file):
+            log_progress(f"   ✅ Already downloaded and validated")
+            return True
+        else:
+            log_progress(f"   ⚠️  Existing file corrupted, re-downloading")
+            local_file.unlink()
     
-    try:
-        s3_client = boto3.client('s3')
+    # Try multiple S3 path patterns
+    s3_paths_to_try = [
+        s3_key,  # Original path
+        f"databento/{file_info['filename']}",  # Alternative path 1
+        f"raw/{file_info['filename']}",  # Alternative path 2
+        f"es-data/{file_info['filename']}"  # Alternative path 3
+    ]
+    
+    s3_client = boto3.client('s3')
+    
+    for attempt_path in s3_paths_to_try:
+        log_progress(f"   🔍 Trying S3 path: {attempt_path}")
         
+        # Check if file exists and get size
         try:
-            response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+            response = s3_client.head_object(Bucket=bucket_name, Key=attempt_path)
             file_size_mb = response['ContentLength'] / (1024**2)
-            log_progress(f"   📦 Size: {file_size_mb:.1f} MB")
-        except:
-            log_progress(f"   ❌ File not found in S3: {s3_key}")
+            log_progress(f"   📦 Found file, size: {file_size_mb:.1f} MB")
+            
+            # Download with retry logic
+            if download_with_retry(s3_client, bucket_name, attempt_path, local_file):
+                # Validate downloaded file
+                if validate_downloaded_file(local_file):
+                    log_progress(f"   ✅ Downloaded and validated successfully")
+                    return True
+                else:
+                    log_progress(f"   ❌ Downloaded file failed validation")
+                    local_file.unlink()
+                    continue
+            
+        except s3_client.exceptions.NoSuchKey:
+            log_progress(f"   ❌ File not found at: {attempt_path}")
+            continue
+        except Exception as e:
+            log_progress(f"   ❌ Error checking path {attempt_path}: {e}")
+            continue
+    
+    log_progress(f"   ❌ File not found in any S3 path")
+    return False
+
+def download_with_retry(s3_client, bucket_name, s3_key, local_file, max_retries=3):
+    """Download file with exponential backoff retry"""
+    for attempt in range(max_retries):
+        try:
+            s3_client.download_file(bucket_name, s3_key, str(local_file))
+            return True
+        except Exception as e:
+            wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+            log_progress(f"   ⚠️  Download attempt {attempt + 1} failed: {e}")
+            
+            if attempt < max_retries - 1:
+                log_progress(f"   ⏳ Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                log_progress(f"   ❌ All download attempts failed")
+                return False
+    
+    return False
+
+def validate_downloaded_file(file_path):
+    """Validate downloaded file integrity"""
+    try:
+        if not file_path.exists():
             return False
         
-        s3_client.download_file(bucket_name, s3_key, str(local_file))
-        log_progress(f"   ✅ Downloaded successfully")
-        return True
+        # Check file size (should be > 1MB for monthly ES data)
+        file_size = file_path.stat().st_size
+        if file_size < 1024 * 1024:  # Less than 1MB
+            log_progress(f"   ⚠️  File too small: {file_size} bytes")
+            return False
         
+        # Try to open as DBN file to validate format
+        try:
+            import databento as db
+            store = db.DBNStore.from_file(str(file_path))
+            metadata = store.metadata
+            
+            # Basic validation - should have start/end times
+            if not hasattr(metadata, 'start') or not hasattr(metadata, 'end'):
+                log_progress(f"   ⚠️  Invalid DBN metadata")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            log_progress(f"   ⚠️  DBN validation failed: {e}")
+            return False
+            
     except Exception as e:
-        log_progress(f"   ❌ Download failed: {e}")
+        log_progress(f"   ⚠️  File validation error: {e}")
         return False
 
 def process_monthly_data(file_info):
@@ -323,31 +447,140 @@ def process_monthly_data(file_info):
         return None
 
 def upload_monthly_results(file_info, processed_file):
-    """Upload monthly results to S3"""
+    """Upload monthly results to S3 with retry logic and validation"""
     try:
+        # Validate file before upload
+        if not validate_processed_file(processed_file):
+            log_progress(f"   ❌ Processed file failed validation")
+            return False
+        
         s3_client = boto3.client('s3')
         bucket_name = "es-1-second-data"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         s3_key = f"processed-data/monthly/monthly_{file_info['month_str']}_{timestamp}.parquet"
         
-        s3_client.upload_file(
-            processed_file,
-            bucket_name,
-            s3_key,
-            ExtraArgs={
-                'Metadata': {
-                    'source': 'monthly_processing',
-                    'month': file_info['month_str'],
-                    'processing_date': timestamp
-                }
-            }
-        )
+        # Get file stats for metadata
+        file_path = Path(processed_file)
+        file_size = file_path.stat().st_size
+        file_size_mb = file_size / (1024**2)
         
-        log_progress(f"   ✅ Uploaded: s3://{bucket_name}/{s3_key}")
-        return True
+        # Read basic stats from parquet file
+        try:
+            df_sample = pd.read_parquet(processed_file, nrows=1000)
+            row_count = len(pd.read_parquet(processed_file))
+            column_count = len(df_sample.columns)
+        except Exception as e:
+            log_progress(f"   ⚠️  Could not read file stats: {e}")
+            row_count = 0
+            column_count = 0
+        
+        # Upload with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                s3_client.upload_file(
+                    processed_file,
+                    bucket_name,
+                    s3_key,
+                    ExtraArgs={
+                        'Metadata': {
+                            'source': 'monthly_processing_pipeline',
+                            'month': file_info['month_str'],
+                            'processing_date': timestamp,
+                            'file_size_mb': str(file_size_mb),
+                            'row_count': str(row_count),
+                            'column_count': str(column_count),
+                            'pipeline_version': '2.0'
+                        }
+                    }
+                )
+                
+                # Verify upload
+                try:
+                    response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+                    uploaded_size = response['ContentLength']
+                    
+                    if uploaded_size == file_size:
+                        log_progress(f"   ✅ Uploaded and verified: s3://{bucket_name}/{s3_key}")
+                        log_progress(f"   📊 File: {file_size_mb:.1f} MB, {row_count:,} rows, {column_count} columns")
+                        return True
+                    else:
+                        log_progress(f"   ⚠️  Size mismatch: local={file_size}, s3={uploaded_size}")
+                        if attempt < max_retries - 1:
+                            continue
+                        
+                except Exception as e:
+                    log_progress(f"   ⚠️  Upload verification failed: {e}")
+                    if attempt < max_retries - 1:
+                        continue
+                
+                return True
+                
+            except Exception as e:
+                wait_time = 2 ** attempt
+                log_progress(f"   ⚠️  Upload attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    log_progress(f"   ⏳ Retrying upload in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    log_progress(f"   ❌ All upload attempts failed")
+                    return False
+        
+        return False
         
     except Exception as e:
         log_progress(f"   ❌ Upload failed: {e}")
+        return False
+
+def validate_processed_file(file_path):
+    """Validate processed parquet file before upload"""
+    try:
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            log_progress(f"   ❌ File does not exist: {file_path}")
+            return False
+        
+        # Check file size (should be reasonable for processed data)
+        file_size = file_path.stat().st_size
+        if file_size < 1024:  # Less than 1KB
+            log_progress(f"   ❌ File too small: {file_size} bytes")
+            return False
+        
+        # Try to read parquet file
+        try:
+            df_sample = pd.read_parquet(file_path, nrows=100)
+            
+            # Check for required columns
+            required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            missing_columns = [col for col in required_columns if col not in df_sample.columns]
+            
+            if missing_columns:
+                log_progress(f"   ❌ Missing required columns: {missing_columns}")
+                return False
+            
+            # Check for labeling columns (should have 6 labels + 6 weights)
+            label_columns = [col for col in df_sample.columns if col.startswith('label_')]
+            weight_columns = [col for col in df_sample.columns if col.startswith('weight_')]
+            
+            if len(label_columns) != 6 or len(weight_columns) != 6:
+                log_progress(f"   ❌ Incorrect labeling columns: {len(label_columns)} labels, {len(weight_columns)} weights")
+                return False
+            
+            # Check total column count (should be around 61: 6 original + 12 labeling + 43 features)
+            if len(df_sample.columns) < 50:
+                log_progress(f"   ❌ Too few columns: {len(df_sample.columns)}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            log_progress(f"   ❌ Parquet validation failed: {e}")
+            return False
+            
+    except Exception as e:
+        log_progress(f"   ❌ File validation error: {e}")
         return False
 
 def cleanup_monthly_files(file_info):

@@ -235,110 +235,268 @@ class OutputDataFrame:
         if missing_new:
             raise ValidationError(f"Missing new columns: {missing_new}")
         
-        # Validate label columns (must be 0 or 1)
+        # Enhanced validation for label columns
         for mode in TRADING_MODES.values():
             label_col = mode.label_column
-            if not self.df[label_col].isin([0, 1]).all():
-                raise ValidationError(f"{label_col} must contain only 0 or 1")
+            
+            # Check for NaN values in labels
+            if self.df[label_col].isnull().any():
+                nan_count = self.df[label_col].isnull().sum()
+                raise ValidationError(f"{label_col} contains {nan_count} NaN values - labels must be 0 or 1")
+            
+            # Check for infinite values in labels
+            if (~np.isfinite(self.df[label_col])).any():
+                inf_count = (~np.isfinite(self.df[label_col])).sum()
+                raise ValidationError(f"{label_col} contains {inf_count} infinite values - labels must be 0 or 1")
+            
+            # Check that values are exactly 0 or 1
+            unique_values = set(self.df[label_col].unique())
+            if not unique_values.issubset({0, 1, 0.0, 1.0}):
+                invalid_values = unique_values - {0, 1, 0.0, 1.0}
+                raise ValidationError(f"{label_col} contains invalid values {invalid_values} - must contain only 0 or 1")
         
-        # Validate weight columns (must be positive)
+        # Enhanced validation for weight columns
         for mode in TRADING_MODES.values():
             weight_col = mode.weight_column
+            
+            # Check for NaN values in weights
+            if self.df[weight_col].isnull().any():
+                nan_count = self.df[weight_col].isnull().sum()
+                raise ValidationError(f"{weight_col} contains {nan_count} NaN values - weights must be positive numbers")
+            
+            # Check for infinite values in weights
+            if (~np.isfinite(self.df[weight_col])).any():
+                inf_count = (~np.isfinite(self.df[weight_col])).sum()
+                raise ValidationError(f"{weight_col} contains {inf_count} infinite values - weights must be positive numbers")
+            
+            # Check that values are positive
             if not (self.df[weight_col] > 0).all():
-                raise ValidationError(f"{weight_col} must contain only positive values")
+                non_positive_count = (self.df[weight_col] <= 0).sum()
+                min_value = self.df[weight_col].min()
+                raise ValidationError(f"{weight_col} contains {non_positive_count} non-positive values (min: {min_value}) - weights must be positive")
     
     def get_statistics(self) -> Dict[str, Dict[str, float]]:
         """
         Get comprehensive statistics for each trading mode
         
+        Enhanced to include processing metrics, data quality flags, and detailed
+        validation information as specified in requirement 3.1.
+        
         Returns:
             Dictionary with statistics per mode including win rates, weight distributions,
-            and validation checks as specified in requirement 10.7
+            validation checks, and data quality metrics
         """
         stats = {}
+        
+        # Overall dataset statistics
+        total_bars = len(self.df)
+        date_range = None
+        if 'timestamp' in self.df.columns:
+            date_range = {
+                'start': self.df['timestamp'].min(),
+                'end': self.df['timestamp'].max(),
+                'duration_hours': (self.df['timestamp'].max() - self.df['timestamp'].min()).total_seconds() / 3600
+            }
         
         for mode in TRADING_MODES.values():
             label_col = mode.label_column
             weight_col = mode.weight_column
             
             # Basic statistics
-            win_rate = self.df[label_col].mean()
-            total_winners = self.df[label_col].sum()
+            win_rate = self.df[label_col].mean() if not self.df[label_col].isnull().all() else 0.0
+            total_winners = int(self.df[label_col].sum()) if not self.df[label_col].isnull().all() else 0
             total_samples = len(self.df)
             
             # Weight statistics
-            avg_weight = self.df[weight_col].mean()
-            weight_std = self.df[weight_col].std()
-            min_weight = self.df[weight_col].min()
-            max_weight = self.df[weight_col].max()
+            if not self.df[weight_col].isnull().all() and np.isfinite(self.df[weight_col]).all():
+                avg_weight = self.df[weight_col].mean()
+                weight_std = self.df[weight_col].std()
+                min_weight = self.df[weight_col].min()
+                max_weight = self.df[weight_col].max()
+                
+                # Weight percentiles for distribution analysis
+                weight_percentiles = {
+                    'p25': self.df[weight_col].quantile(0.25),
+                    'p50': self.df[weight_col].quantile(0.50),
+                    'p75': self.df[weight_col].quantile(0.75),
+                    'p90': self.df[weight_col].quantile(0.90),
+                    'p95': self.df[weight_col].quantile(0.95)
+                }
+            else:
+                avg_weight = weight_std = min_weight = max_weight = np.nan
+                weight_percentiles = {k: np.nan for k in ['p25', 'p50', 'p75', 'p90', 'p95']}
             
-            # Validation checks
+            # Enhanced validation checks
             has_nan_labels = self.df[label_col].isnull().any()
             has_nan_weights = self.df[weight_col].isnull().any()
+            has_infinite_labels = (~np.isfinite(self.df[label_col])).any()
             has_infinite_weights = (~np.isfinite(self.df[weight_col])).any()
             
-            # Win rate validation (5-50% range as per requirement 10.5)
-            win_rate_reasonable = 0.05 <= win_rate <= 0.50
+            # Label validation
+            if not has_nan_labels and not has_infinite_labels:
+                unique_labels = set(self.df[label_col].unique())
+                labels_binary = unique_labels.issubset({0, 1, 0.0, 1.0})
+            else:
+                labels_binary = False
+            
+            # Weight validation
+            if not has_nan_weights and not has_infinite_weights:
+                weights_positive = (self.df[weight_col] > 0).all()
+            else:
+                weights_positive = False
+            
+            # Win rate validation (5-50% range as per requirement 5.3)
+            win_rate_reasonable = 0.05 <= win_rate <= 0.50 if labels_binary else False
+            
+            # Data quality flags
+            nan_percentage_labels = (self.df[label_col].isnull().sum() / len(self.df)) * 100
+            nan_percentage_weights = (self.df[weight_col].isnull().sum() / len(self.df)) * 100
             
             stats[mode.name] = {
                 # Basic metrics
                 'win_rate': win_rate,
-                'total_winners': int(total_winners),
+                'total_winners': total_winners,
                 'total_samples': total_samples,
+                'loss_rate': 1.0 - win_rate if labels_binary else np.nan,
                 
                 # Weight distribution
                 'avg_weight': avg_weight,
                 'weight_std': weight_std,
                 'min_weight': min_weight,
                 'max_weight': max_weight,
+                'weight_percentiles': weight_percentiles,
                 
-                # Quality checks
+                # Data quality metrics
+                'nan_percentage_labels': nan_percentage_labels,
+                'nan_percentage_weights': nan_percentage_weights,
                 'has_nan_labels': has_nan_labels,
                 'has_nan_weights': has_nan_weights,
+                'has_infinite_labels': has_infinite_labels,
                 'has_infinite_weights': has_infinite_weights,
+                
+                # Validation flags
+                'labels_binary': labels_binary,
+                'weights_positive': weights_positive,
                 'win_rate_reasonable': win_rate_reasonable,
                 
-                # Validation status
+                # Overall validation status
                 'validation_passed': (
+                    labels_binary and 
+                    weights_positive and 
                     not has_nan_labels and 
                     not has_nan_weights and 
+                    not has_infinite_labels and
                     not has_infinite_weights and 
                     win_rate_reasonable
                 )
             }
         
+        # Add overall dataset statistics
+        stats['dataset_summary'] = {
+            'total_bars': total_bars,
+            'date_range': date_range,
+            'all_modes_valid': all(stats[mode.name]['validation_passed'] for mode in TRADING_MODES.values()),
+            'modes_with_reasonable_win_rates': sum(1 for mode in TRADING_MODES.values() 
+                                                  if stats[mode.name]['win_rate_reasonable']),
+            'total_modes': len(TRADING_MODES)
+        }
+        
         return stats
     
     def validate_quality_assurance(self) -> Dict[str, bool]:
         """
-        Perform comprehensive quality assurance checks as per requirement 10
+        Perform comprehensive quality assurance checks as per requirement 5.3
+        
+        Enhanced to provide detailed validation of binary labels, positive weights,
+        win rate ranges, and detection of NaN/infinite values in output.
         
         Returns:
             Dictionary with validation results for each check
         """
         checks = {}
         
-        # Check for NaN or infinite values in output columns (requirement 10.6)
+        # Enhanced validation for each trading mode
         for mode in TRADING_MODES.values():
             label_col = mode.label_column
             weight_col = mode.weight_column
             
+            # Enhanced NaN detection for labels and weights
             checks[f'{mode.name}_labels_no_nan'] = not self.df[label_col].isnull().any()
             checks[f'{mode.name}_weights_no_nan'] = not self.df[weight_col].isnull().any()
+            
+            # Enhanced infinite value detection for labels and weights
+            checks[f'{mode.name}_labels_no_infinite'] = np.isfinite(self.df[label_col]).all()
             checks[f'{mode.name}_weights_no_infinite'] = np.isfinite(self.df[weight_col]).all()
             
-            # Check label values are exactly 0 or 1 (requirement 10.1)
-            checks[f'{mode.name}_labels_binary'] = self.df[label_col].isin([0, 1]).all()
+            # Enhanced binary label validation (ensure only 0 or 1 values)
+            if not self.df[label_col].isnull().any():
+                unique_values = set(self.df[label_col].unique())
+                checks[f'{mode.name}_labels_binary'] = unique_values.issubset({0, 1, 0.0, 1.0})
+            else:
+                checks[f'{mode.name}_labels_binary'] = False
             
-            # Check weight values are positive (requirement 10.2)
-            checks[f'{mode.name}_weights_positive'] = (self.df[weight_col] > 0).all()
+            # Enhanced positive weight validation
+            if not self.df[weight_col].isnull().any() and np.isfinite(self.df[weight_col]).all():
+                checks[f'{mode.name}_weights_positive'] = (self.df[weight_col] > 0).all()
+            else:
+                checks[f'{mode.name}_weights_positive'] = False
             
-            # Check winning percentages are reasonable (requirement 10.5)
-            win_rate = self.df[label_col].mean()
-            checks[f'{mode.name}_win_rate_reasonable'] = 0.05 <= win_rate <= 0.50
+            # Enhanced win rate validation (5-50% range per mode)
+            if checks[f'{mode.name}_labels_binary'] and checks[f'{mode.name}_labels_no_nan']:
+                win_rate = self.df[label_col].mean()
+                checks[f'{mode.name}_win_rate_reasonable'] = 0.05 <= win_rate <= 0.50
+                
+                # Additional win rate statistics for debugging
+                checks[f'{mode.name}_win_rate_value'] = win_rate
+            else:
+                checks[f'{mode.name}_win_rate_reasonable'] = False
+                checks[f'{mode.name}_win_rate_value'] = np.nan
+            
+            # Weight distribution validation
+            if checks[f'{mode.name}_weights_positive'] and checks[f'{mode.name}_weights_no_nan']:
+                weight_mean = self.df[weight_col].mean()
+                weight_std = self.df[weight_col].std()
+                weight_min = self.df[weight_col].min()
+                weight_max = self.df[weight_col].max()
+                
+                # Reasonable weight distribution checks
+                checks[f'{mode.name}_weights_reasonable_range'] = (
+                    0.1 <= weight_min and weight_max <= 10.0  # Reasonable bounds
+                )
+                checks[f'{mode.name}_weights_reasonable_mean'] = 0.5 <= weight_mean <= 5.0
+                
+                # Store weight statistics for analysis
+                checks[f'{mode.name}_weight_mean'] = weight_mean
+                checks[f'{mode.name}_weight_std'] = weight_std
+                checks[f'{mode.name}_weight_min'] = weight_min
+                checks[f'{mode.name}_weight_max'] = weight_max
+            else:
+                checks[f'{mode.name}_weights_reasonable_range'] = False
+                checks[f'{mode.name}_weights_reasonable_mean'] = False
+                checks[f'{mode.name}_weight_mean'] = np.nan
+                checks[f'{mode.name}_weight_std'] = np.nan
+                checks[f'{mode.name}_weight_min'] = np.nan
+                checks[f'{mode.name}_weight_max'] = np.nan
         
-        # Overall validation
-        checks['all_validations_passed'] = all(checks.values())
+        # Overall data quality checks
+        all_labels_valid = all(checks[f'{mode.name}_labels_binary'] and 
+                              checks[f'{mode.name}_labels_no_nan'] and 
+                              checks[f'{mode.name}_labels_no_infinite']
+                              for mode in TRADING_MODES.values())
+        
+        all_weights_valid = all(checks[f'{mode.name}_weights_positive'] and 
+                               checks[f'{mode.name}_weights_no_nan'] and 
+                               checks[f'{mode.name}_weights_no_infinite']
+                               for mode in TRADING_MODES.values())
+        
+        all_win_rates_reasonable = all(checks[f'{mode.name}_win_rate_reasonable']
+                                      for mode in TRADING_MODES.values())
+        
+        # Summary validation flags
+        checks['all_labels_valid'] = all_labels_valid
+        checks['all_weights_valid'] = all_weights_valid
+        checks['all_win_rates_reasonable'] = all_win_rates_reasonable
+        checks['all_validations_passed'] = all_labels_valid and all_weights_valid and all_win_rates_reasonable
         
         return checks
     

@@ -636,7 +636,7 @@ class TestInputOutputValidation(unittest.TestCase):
         
         self.assertEqual(output_data.size, 100)
         stats = output_data.get_statistics()
-        self.assertEqual(len(stats), 6)  # 6 trading modes
+        self.assertEqual(len(stats), 7)  # 6 trading modes + dataset_summary
     
     def test_output_validation_invalid_labels(self):
         """Test output validation with invalid label values"""
@@ -666,7 +666,7 @@ class TestInputOutputValidation(unittest.TestCase):
         with self.assertRaises(ValidationError) as context:
             OutputDataFrame(df, original_columns)
         
-        self.assertIn("must contain only positive values", str(context.exception))
+        self.assertIn("weights must be positive", str(context.exception))
 
 
 class TestIntegrationEndToEnd(unittest.TestCase):
