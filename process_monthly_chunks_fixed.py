@@ -2454,6 +2454,30 @@ def main():
     elif success_rate < 100:
         log_progress(f"   💡 Recommendation: Consider reprocessing the {failed} failed months")
     
+    # Generate final processing report (task 5.3)
+    log_progress(f"📊 GENERATING FINAL PROCESSING REPORT")
+    try:
+        from src.data_pipeline.final_processing_report import generate_final_processing_report
+        
+        report_content, report_path = generate_final_processing_report("/tmp/monthly_processing")
+        
+        if report_path:
+            log_progress(f"   ✅ Final processing report generated successfully")
+            log_progress(f"   📄 Report saved to: {report_path}")
+            
+            # Log key findings from the report
+            if success_rate >= 95:
+                log_progress(f"   🎯 Status: Ready for model training (success rate: {success_rate:.1f}%)")
+            elif success_rate >= 85:
+                log_progress(f"   ⚠️  Status: Minor reprocessing needed (success rate: {success_rate:.1f}%)")
+            else:
+                log_progress(f"   🔄 Status: Significant reprocessing required (success rate: {success_rate:.1f}%)")
+        else:
+            log_progress(f"   ⚠️  Warning: Could not generate final processing report", level="WARNING")
+    
+    except Exception as e:
+        log_progress(f"   ❌ Error generating final processing report: {e}", level="ERROR", error_details=e)
+    
     return {
         'successful': successful,
         'failed': failed,
