@@ -52,13 +52,27 @@ def verify_rth_features(df):
         # Convert to Central Time
         central_tz = pytz.timezone('US/Central')
         
-        if timestamps.tz is None:
-            ct_time = timestamps.tz_localize('UTC').tz_convert(central_tz)
+        # Handle both Series and Index cases
+        if hasattr(timestamps, 'dt'):
+            # Series case
+            if timestamps.dt.tz is None:
+                ct_time = timestamps.dt.tz_localize('UTC').dt.tz_convert(central_tz)
+            else:
+                ct_time = timestamps.dt.tz_convert(central_tz)
         else:
-            ct_time = timestamps.tz_convert(central_tz)
+            # Index case
+            if timestamps.tz is None:
+                ct_time = timestamps.tz_localize('UTC').tz_convert(central_tz)
+            else:
+                ct_time = timestamps.tz_convert(central_tz)
         
         # Check time ranges
-        ct_decimal = ct_time.hour + ct_time.minute / 60.0
+        if hasattr(ct_time, 'dt'):
+            # Series case
+            ct_decimal = ct_time.dt.hour + ct_time.dt.minute / 60.0
+        else:
+            # Index case
+            ct_decimal = ct_time.hour + ct_time.minute / 60.0
         
         # Count ETH bars
         eth_mask = (ct_decimal < 7.5) | (ct_decimal >= 15.0)
@@ -691,10 +705,10 @@ def add_volume_features(df):
         # Volume ratio vs 30-bar rolling mean
         df['volume_ratio_30s'] = df['volume'] / df['volume'].rolling(30).mean()
         
-        # Volume slope calculations
+        # Volume slope calculations (optimized)
         vol_ma_5 = df['volume'].rolling(5).mean()
-        df['volume_slope_30s'] = vol_ma_5.rolling(30).apply(lambda x: linear_slope(x))
-        df['volume_slope_5s'] = df['volume'].rolling(5).apply(lambda x: linear_slope(x))
+        df['volume_slope_30s'] = vol_ma_5.rolling(30).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) >= 2 and not x.isna().all() else np.nan, raw=False)
+        df['volume_slope_5s'] = df['volume'].rolling(5).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) >= 2 and not x.isna().all() else np.nan, raw=False)
         
         # Combined exhaustion signal
         df['volume_exhaustion'] = df['volume_ratio_30s'] * df['volume_slope_5s']
@@ -773,8 +787,8 @@ def add_price_context_features(df):
                                                (df['close'] - df['vwap']) / df['vwap'] * 100,
                                                np.nan)
         
-        # VWAP slope over last 30 bars
-        df['vwap_slope'] = df['vwap'].rolling(30).apply(lambda x: linear_slope(x))
+        # VWAP slope over last 30 bars (optimized)
+        df['vwap_slope'] = df['vwap'].rolling(30).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0] if len(x) >= 2 and not x.isna().all() else np.nan, raw=False)
         
         # Simplified RTH high/low using rolling windows (much faster)
         # Use rolling max/min instead of session-based for performance

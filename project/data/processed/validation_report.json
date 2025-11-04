@@ -1,0 +1,84 @@
+{
+  "timestamp": "2025-11-04 09:10:42",
+  "processing_time_seconds": 1373.6044816970825,
+  "processing_time_minutes": 22.893408028284707,
+  "input_rows": 517175,
+  "output_rows": 517175,
+  "data_retention_rate": 1.0,
+  "processing_rate_rows_per_second": 376.50940055250294,
+  "large_price_changes": "9149",
+  "max_price_change": 161.0,
+  "labeling_time_seconds": 737.011039018631,
+  "feature_time_seconds": 629.6421751976013,
+  "features_generated": 43,
+  "features_with_nan": 31,
+  "nan_percentages": {
+    "volume_ratio_30s": 0.005607386281239426,
+    "volume_slope_30s": 0.006380818871755208,
+    "volume_slope_5s": 0.0007734325905157829,
+    "volume_exhaustion": 0.005607386281239426,
+    "vwap_slope": 0.005607386281239426,
+    "distance_from_rth_high": 0.34785130758447336,
+    "distance_from_rth_low": 0.34785130758447336,
+    "short_range_high": 0.05781408614105477,
+    "short_range_low": 0.05781408614105477,
+    "short_range_size": 0.05781408614105477,
+    "position_in_short_range": 0.05781408614105477,
+    "medium_range_high": 0.17382897471842218,
+    "medium_range_low": 0.17382897471842218,
+    "medium_range_size": 0.17382897471842218,
+    "range_compression_ratio": 0.17382897471842218,
+    "return_30s": 0.005800744428868371,
+    "return_60s": 0.011601488857736743,
+    "return_300s": 0.05800744428868371,
+    "momentum_acceleration": 0.011601488857736743,
+    "momentum_consistency": 0.005800744428868371,
+    "atr_30s": 0.005607386281239426,
+    "atr_300s": 0.05781408614105477,
+    "volatility_regime": 0.05781408614105477,
+    "volatility_acceleration": 0.011408130710107798,
+    "volatility_breakout": 0.06342147242229419,
+    "atr_percentile": 0.06342147242229419,
+    "relative_bar_size": 0.005607386281239426,
+    "uptick_pct_30s": 0.005607386281239426,
+    "uptick_pct_60s": 0.011408130710107798,
+    "bar_flow_consistency": 0.011408130710107798,
+    "directional_strength": 0.005607386281239426
+  },
+  "mode_statistics": {
+    "low_vol_long": {
+      "win_rate": 0.1499898486972495,
+      "avg_weight": 1.2754826032637292,
+      "total_winners": 77571
+    },
+    "normal_vol_long": {
+      "win_rate": 0.09906124619326147,
+      "avg_weight": 1.1741147573616337,
+      "total_winners": 51232
+    },
+    "high_vol_long": {
+      "win_rate": 0.06086914487359211,
+      "avg_weight": 1.1047378889078336,
+      "total_winners": 31480
+    },
+    "low_vol_short": {
+      "win_rate": 0.15176681007395948,
+      "avg_weight": 1.282891184539849,
+      "total_winners": 78490
+    },
+    "normal_vol_short": {
+      "win_rate": 0.09821433750664668,
+      "avg_weight": 1.1797153076382434,
+      "total_winners": 50794
+    },
+    "high_vol_short": {
+      "win_rate": 0.06370184173635617,
+      "avg_weight": 1.1138800542701697,
+      "total_winners": 32945
+    }
+  },
+  "valid_modes": 6,
+  "peak_memory_mb": 685.84375,
+  "overall_quality_score": 85.71428571428571,
+  "ready_for_production": true
+}

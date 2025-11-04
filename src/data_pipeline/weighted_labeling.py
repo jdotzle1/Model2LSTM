@@ -365,18 +365,17 @@ class LabelCalculator:
             mode: Trading mode configuration
             enable_vectorization: Whether to use vectorized calculations
             roll_detection_threshold: Minimum price change (in points) to detect contract rolls
-        
-        Args:
-            mode: TradingMode configuration
-            enable_vectorization: Whether to use numpy vectorization for optimization
         """
         self.mode = mode
         self.enable_vectorization = enable_vectorization
         self.roll_detection_threshold = roll_detection_threshold
+        self._rollover_stats = {}
     
     def _detect_contract_rolls(self, df: pd.DataFrame) -> np.ndarray:
         """
         Detect contract roll events based on large price jumps
+        
+        Enhanced to handle ES futures data properly and collect statistics
         
         Args:
             df: DataFrame with OHLCV data
@@ -393,6 +392,16 @@ class LabelCalculator:
         # Identify roll events (large sudden price jumps)
         roll_events = price_changes > self.roll_detection_threshold
         
+        # Collect rollover statistics for debugging
+        if hasattr(self, '_rollover_stats'):
+            self._rollover_stats = {
+                'total_bars': len(df),
+                'roll_events_detected': roll_events.sum(),
+                'max_price_change': price_changes.max(),
+                'mean_price_change': price_changes.mean(),
+                'threshold_used': self.roll_detection_threshold
+            }
+        
         # Mark bars around roll events as affected
         # This includes the bar with the roll and the next few bars
         affected_bars = np.zeros(len(df), dtype=bool)
@@ -403,6 +412,11 @@ class LabelCalculator:
                 start_idx = max(0, i - 1)  # Include previous bar
                 end_idx = min(len(df), i + 6)  # Include next 5 bars
                 affected_bars[start_idx:end_idx] = True
+        
+        # Store additional statistics
+        if hasattr(self, '_rollover_stats'):
+            self._rollover_stats['bars_affected'] = affected_bars.sum()
+            self._rollover_stats['percentage_affected'] = (affected_bars.sum() / len(df)) * 100
         
         return affected_bars
 

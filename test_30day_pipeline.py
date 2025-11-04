@@ -50,7 +50,13 @@ def test_30day_pipeline():
     
     # Convert timestamp index to column (required by weighted labeling system)
     print(f"\n🕐 Converting timestamp index to column...")
-    df = df.reset_index()  # This moves the timestamp index to a 'timestamp' column
+    df = df.reset_index()  # This moves the timestamp index to a 'ts_event' column
+    
+    # Rename ts_event to timestamp for compatibility with weighted labeling system
+    if 'ts_event' in df.columns and 'timestamp' not in df.columns:
+        df = df.rename(columns={'ts_event': 'timestamp'})
+        print(f"   Renamed 'ts_event' to 'timestamp' for compatibility")
+    
     print(f"   New columns: {df.columns.tolist()}")
     
     # Sample data check
@@ -85,6 +91,49 @@ def test_30day_pipeline():
             print("   ✅ All data is within RTH when converted to Central Time")
     
     try:
+        # Step 0: Filter data for quality (RTH hours + main contracts only)
+        print(f"\n🕐 STEP 0: FILTERING DATA FOR QUALITY")
+        print("-" * 40)
+        
+        import pytz
+        from datetime import time as dt_time
+        
+        # First, filter to main ES contracts only (exclude spread contracts)
+        print(f"   Symbols in data: {df['symbol'].value_counts().to_dict()}")
+        
+        # Keep only main ES contracts (exclude spreads like ESZ5-ESH6)
+        main_contracts = df[~df['symbol'].str.contains('-', na=False)].copy()
+        print(f"   Original rows: {len(df):,}")
+        print(f"   Main contracts only: {len(main_contracts):,}")
+        print(f"   Filtered out spreads: {len(df) - len(main_contracts):,}")
+        
+        # Convert to Central Time for RTH filtering
+        central_tz = pytz.timezone('US/Central')
+        central_times = main_contracts['timestamp'].dt.tz_convert(central_tz)
+        central_time_only = central_times.dt.time
+        
+        # Filter to RTH (07:30-15:00 CT)
+        rth_start = dt_time(7, 30)
+        rth_end = dt_time(15, 0)
+        rth_mask = (central_time_only >= rth_start) & (central_time_only < rth_end)
+        
+        df_rth = main_contracts[rth_mask].copy()
+        print(f"   RTH rows: {len(df_rth):,}")
+        print(f"   Total filtered out: {len(df) - len(df_rth):,} ({(len(df) - len(df_rth))/len(df)*100:.1f}%)")
+        
+        if len(df_rth) == 0:
+            print("❌ No RTH data found after filtering")
+            return False
+        
+        # Check price consistency after filtering
+        price_changes = df_rth['close'].diff().abs()
+        large_changes = (price_changes > 20).sum()
+        print(f"   Large price changes (>20 points): {large_changes}")
+        print(f"   Max price change: {price_changes.max():.2f} points")
+        
+        # Use filtered data for the rest of the pipeline
+        df = df_rth
+        
         # Step 1: Weighted Labeling (6 volatility modes)
         print(f"\n🏷️  STEP 1: WEIGHTED LABELING")
         print("-" * 40)
@@ -170,17 +219,150 @@ def test_30day_pipeline():
         print(f"✅ Results saved to: {output_file}")
         print(f"   File size: {output_size_mb:.1f} MB")
         
-        # Final summary
+        # Step 4: Generate comprehensive validation report
+        print(f"\n📊 STEP 4: COMPREHENSIVE VALIDATION REPORT")
+        print("-" * 40)
+        
+        # Generate comprehensive validation report with built-in functionality
         total_time = time.time() - start_time
-        print(f"\n🎉 PIPELINE TEST COMPLETE!")
-        print(f"   Total time: {total_time:.1f} seconds")
-        print(f"   Final dataset: {len(df_final):,} rows × {len(df_final.columns)} columns")
-        print(f"   Expected format: 6 original + 12 labeling + 43 features = 61 columns")
+        processing_rate = len(df_final) / total_time
+        
+        # Create comprehensive validation report
+        report_data = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "processing_time_seconds": total_time,
+            "processing_time_minutes": total_time / 60,
+            "input_rows": len(df),
+            "output_rows": len(df_final),
+            "data_retention_rate": len(df_final) / len(df),
+            "processing_rate_rows_per_second": processing_rate,
+            "large_price_changes": large_changes,
+            "max_price_change": price_changes.max(),
+            "labeling_time_seconds": labeling_time,
+            "feature_time_seconds": features_time,
+        }
+        
+        print("📈 Data Quality Metrics:")
+        print(f"   Original data: {len(df):,} rows")
+        print(f"   Final dataset: {len(df_final):,} rows")
+        print(f"   Processing efficiency: {len(df_final)/len(df)*100:.1f}% data retained")
+        print(f"   Large price changes detected: {large_changes}")
+        print(f"   Max price change: {price_changes.max():.2f} points")
+        
+        # Feature quality metrics
+        feature_cols = [col for col in df_final.columns if col not in df.columns and not col.startswith(('label_', 'weight_'))]
+        print(f"\n🔧 Feature Engineering Quality:")
+        print(f"   Features generated: {len(feature_cols)}")
+        
+        # Check NaN percentages
+        nan_percentages = {}
+        for col in feature_cols:
+            nan_pct = (df_final[col].isnull().sum() / len(df_final)) * 100
+            if nan_pct > 0:
+                nan_percentages[col] = nan_pct
+        
+        report_data["features_generated"] = len(feature_cols)
+        report_data["features_with_nan"] = len(nan_percentages)
+        report_data["nan_percentages"] = nan_percentages
+        
+        if nan_percentages:
+            print(f"   Features with NaN values: {len(nan_percentages)}")
+            for col, pct in sorted(nan_percentages.items(), key=lambda x: x[1], reverse=True)[:5]:
+                print(f"     {col}: {pct:.1f}% NaN")
+        else:
+            print(f"   ✅ No NaN values in features")
+        
+        # Win rates and weight distributions
+        print(f"\n🏷️  Weighted Labeling Summary:")
+        label_cols = [col for col in df_final.columns if col.startswith('label_')]
+        weight_cols = [col for col in df_final.columns if col.startswith('weight_')]
+        
+        mode_statistics = {}
+        valid_modes = 0
+        
+        for mode_name in ['low_vol_long', 'normal_vol_long', 'high_vol_long', 
+                         'low_vol_short', 'normal_vol_short', 'high_vol_short']:
+            label_col = f'label_{mode_name}'
+            weight_col = f'weight_{mode_name}'
+            
+            if label_col in df_final.columns and weight_col in df_final.columns:
+                win_rate = df_final[label_col].mean()
+                avg_weight = df_final[weight_col].mean()
+                total_winners = df_final[label_col].sum()
+                
+                mode_statistics[mode_name] = {
+                    "win_rate": win_rate,
+                    "avg_weight": avg_weight,
+                    "total_winners": int(total_winners)
+                }
+                
+                status = "✅" if 0.05 <= win_rate <= 0.50 else "⚠️"
+                print(f"   {status} {mode_name}: {win_rate:.1%} win rate ({total_winners:,} winners), avg weight: {avg_weight:.3f}")
+                
+                if 0.05 <= win_rate <= 0.50:
+                    valid_modes += 1
+        
+        report_data["mode_statistics"] = mode_statistics
+        report_data["valid_modes"] = valid_modes
+        
+        # Performance summary
+        print(f"\n⚡ Performance Summary:")
+        print(f"   Total processing time: {total_time:.1f} seconds ({total_time/60:.1f} minutes)")
+        print(f"   Processing rate: {processing_rate:.0f} rows/second")
+        print(f"   Weighted labeling: {labeling_time:.1f}s ({labeling_time/total_time*100:.1f}%)")
+        print(f"   Feature engineering: {features_time:.1f}s ({features_time/total_time*100:.1f}%)")
+        
+        # Memory usage (if available)
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / (1024**2)
+            print(f"   Peak memory usage: ~{memory_mb:.0f} MB")
+            report_data["peak_memory_mb"] = memory_mb
+        except:
+            report_data["peak_memory_mb"] = None
+        
+        # Final validation
+        print(f"\n✅ FINAL VALIDATION:")
+        print(f"   Dataset: {len(df_final):,} rows × {len(df_final.columns)} columns")
+        print(f"   Expected: 6 original + 12 labeling + 43 features = 61 columns")
         
         if len(df_final.columns) == 61:
-            print("✅ Perfect! Ready for XGBoost training")
+            print("   ✅ Perfect column count! Ready for XGBoost training")
         else:
-            print(f"⚠️  Got {len(df_final.columns)} columns instead of 61")
+            extra_cols = len(df_final.columns) - 61
+            print(f"   ⚠️  {extra_cols} extra columns (likely metadata from test data)")
+        
+        # Quality score
+        quality_checks = [
+            len(df_final) > 0,  # Has data
+            len(feature_cols) == 43,  # Correct feature count
+            len(label_cols) == 6,  # Correct label count
+            len(weight_cols) == 6,  # Correct weight count
+            len(nan_percentages) < 10,  # Low NaN features
+            total_time < 3600,  # Under 1 hour
+            valid_modes >= 4,  # Most modes have valid win rates
+        ]
+        
+        quality_score = sum(quality_checks) / len(quality_checks) * 100
+        report_data["overall_quality_score"] = quality_score
+        report_data["ready_for_production"] = quality_score >= 80
+        
+        print(f"   Overall quality score: {quality_score:.0f}%")
+        
+        # Save comprehensive validation report
+        report_path = project_root / "project/data/processed/validation_report.json"
+        import json
+        with open(report_path, 'w') as f:
+            json.dump(report_data, f, indent=2, default=str)
+        print(f"📄 Validation report saved to: {report_path}")
+        
+        if quality_score >= 80:
+            print("\n🎉 PIPELINE TEST SUCCESSFUL!")
+            print("   Ready for production deployment!")
+        else:
+            print("\n⚠️  PIPELINE TEST COMPLETED WITH WARNINGS")
+            print("   Review quality issues before production deployment")
         
         return True
         

@@ -35,9 +35,20 @@ def test_full_dataset_logic():
         # Convert timestamp index to column (simulate DBN conversion output)
         if 'timestamp' not in df.columns:
             df = df.reset_index()
+            # Rename ts_event to timestamp for compatibility
+            if 'ts_event' in df.columns and 'timestamp' not in df.columns:
+                df = df.rename(columns={'ts_event': 'timestamp'})
+                print(f"   Renamed 'ts_event' to 'timestamp' for compatibility")
         
         print(f"✅ Loaded {len(df):,} rows")
         print(f"   Columns: {df.columns.tolist()}")
+        
+        # Filter to main contracts only (exclude spreads) - same as test_30day_pipeline.py
+        print(f"   Symbols in data: {df['symbol'].value_counts().head().to_dict()}")
+        main_contracts = df[~df['symbol'].str.contains('-', na=False)].copy()
+        print(f"   Main contracts only: {len(main_contracts):,}")
+        print(f"   Filtered out spreads: {len(df) - len(main_contracts):,}")
+        df = main_contracts
         
         # EXACT SAME LOGIC AS FULL DATASET SCRIPT
         
@@ -142,7 +153,7 @@ def test_full_dataset_logic():
         
         # Step 5: Save test results
         print("\n💾 STEP 5: Saving validation results...")
-        output_file = Path("/tmp/validation_test_output.parquet")
+        output_file = Path("validation_test_output.parquet")
         
         df_final.to_parquet(output_file, index=False)
         
