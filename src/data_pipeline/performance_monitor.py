@@ -9,19 +9,37 @@ import time
 import psutil
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+import gc
+import threading
+from typing import Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 
 
 @dataclass
+class MemorySnapshot:
+    """Single memory usage snapshot"""
+    timestamp: float
+    rss_mb: float
+    vms_mb: float
+    available_mb: float
+    percent_used: float
+    
+    @property
+    def rss_gb(self) -> float:
+        return self.rss_mb / 1024.0
+
+
+@dataclass
 class PerformanceMetrics:
-    """Container for performance metrics"""
+    """Container for performance metrics with enhanced memory tracking"""
     start_time: float = field(default_factory=time.time)
     end_time: Optional[float] = None
     rows_processed: int = 0
-    memory_usage_mb: List[float] = field(default_factory=list)
+    memory_snapshots: List[MemorySnapshot] = field(default_factory=list)
     processing_stages: Dict[str, float] = field(default_factory=dict)
+    gc_events: List[Tuple[float, str]] = field(default_factory=list)  # (timestamp, reason)
+    memory_cleanup_events: List[Tuple[float, float, float]] = field(default_factory=list)  # (timestamp, before_mb, after_mb)
     
     @property
     def elapsed_time(self) -> float:
@@ -39,34 +57,158 @@ class PerformanceMetrics:
     @property
     def peak_memory_mb(self) -> float:
         """Peak memory usage in MB"""
-        return max(self.memory_usage_mb) if self.memory_usage_mb else 0.0
+        return max(snapshot.rss_mb for snapshot in self.memory_snapshots) if self.memory_snapshots else 0.0
     
     @property
     def peak_memory_gb(self) -> float:
         """Peak memory usage in GB"""
         return self.peak_memory_mb / 1024.0
+    
+    @property
+    def memory_usage_mb(self) -> List[float]:
+        """Legacy compatibility - return RSS memory usage"""
+        return [snapshot.rss_mb for snapshot in self.memory_snapshots]
+    
+    @property
+    def current_memory_mb(self) -> float:
+        """Current memory usage in MB"""
+        return self.memory_snapshots[-1].rss_mb if self.memory_snapshots else 0.0
+    
+    @property
+    def memory_growth_rate_mb_per_minute(self) -> float:
+        """Memory growth rate in MB per minute"""
+        if len(self.memory_snapshots) < 2:
+            return 0.0
+        
+        first = self.memory_snapshots[0]
+        last = self.memory_snapshots[-1]
+        time_diff = (last.timestamp - first.timestamp) / 60.0  # minutes
+        
+        if time_diff == 0:
+            return 0.0
+        
+        return (last.rss_mb - first.rss_mb) / time_diff
+
+
+class MemoryManager:
+    """Enhanced memory management with automatic cleanup triggers"""
+    
+    def __init__(self, memory_limit_gb: float = 8.0, cleanup_threshold: float = 0.8):
+        """
+        Initialize memory manager
+        
+        Args:
+            memory_limit_gb: Memory usage limit in GB
+            cleanup_threshold: Trigger cleanup when memory usage exceeds this fraction of limit
+        """
+        self.memory_limit_gb = memory_limit_gb
+        self.cleanup_threshold = cleanup_threshold
+        self.cleanup_threshold_mb = memory_limit_gb * 1024 * cleanup_threshold
+        self._process = psutil.Process()
+        self.cleanup_callbacks: List[Callable] = []
+        
+    def register_cleanup_callback(self, callback: Callable) -> None:
+        """Register a callback to be called during memory cleanup"""
+        self.cleanup_callbacks.append(callback)
+    
+    def check_memory_and_cleanup(self, force: bool = False) -> Tuple[bool, float, float]:
+        """
+        Check memory usage and trigger cleanup if needed
+        
+        Args:
+            force: Force cleanup regardless of threshold
+            
+        Returns:
+            Tuple of (cleanup_triggered, memory_before_mb, memory_after_mb)
+        """
+        memory_before = self.get_current_memory_mb()
+        
+        if force or memory_before > self.cleanup_threshold_mb:
+            # Call registered cleanup callbacks
+            for callback in self.cleanup_callbacks:
+                try:
+                    callback()
+                except Exception as e:
+                    print(f"Warning: Cleanup callback failed: {e}")
+            
+            # Force garbage collection
+            gc.collect()
+            
+            # Additional cleanup for numpy/pandas
+            try:
+                import numpy as np
+                # Clear numpy cache
+                np.seterr(all='ignore')  # Suppress warnings during cleanup
+            except:
+                pass
+            
+            memory_after = self.get_current_memory_mb()
+            return True, memory_before, memory_after
+        
+        return False, memory_before, memory_before
+    
+    def get_current_memory_mb(self) -> float:
+        """Get current memory usage in MB"""
+        memory_info = self._process.memory_info()
+        return memory_info.rss / (1024 ** 2)
+    
+    def get_memory_snapshot(self) -> MemorySnapshot:
+        """Get detailed memory snapshot"""
+        memory_info = self._process.memory_info()
+        system_memory = psutil.virtual_memory()
+        
+        return MemorySnapshot(
+            timestamp=time.time(),
+            rss_mb=memory_info.rss / (1024 ** 2),
+            vms_mb=memory_info.vms / (1024 ** 2),
+            available_mb=system_memory.available / (1024 ** 2),
+            percent_used=system_memory.percent
+        )
+    
+    def optimize_processing_order(self, chunk_indices: List[int]) -> List[int]:
+        """
+        Optimize processing order to minimize memory fragmentation
+        
+        Args:
+            chunk_indices: List of chunk indices to process
+            
+        Returns:
+            Optimized order of chunk indices
+        """
+        # For now, use sequential order but could implement more sophisticated strategies
+        # like processing smaller chunks first or interleaving different types of operations
+        return sorted(chunk_indices)
 
 
 class PerformanceMonitor:
-    """Performance monitoring and optimization utilities"""
+    """Enhanced performance monitoring with automatic memory management"""
     
     def __init__(self, target_rows_per_minute: int = 167_000, 
-                 memory_limit_gb: float = 8.0):
+                 memory_limit_gb: float = 8.0,
+                 enable_auto_cleanup: bool = True,
+                 cleanup_frequency: int = 10):
         """
-        Initialize performance monitor
+        Initialize performance monitor with enhanced memory management
         
         Args:
             target_rows_per_minute: Target processing speed (167K for 10M in 60 min)
             memory_limit_gb: Memory usage limit in GB
+            enable_auto_cleanup: Enable automatic memory cleanup
+            cleanup_frequency: Trigger cleanup check every N progress updates
         """
         self.target_rows_per_minute = target_rows_per_minute
         self.memory_limit_gb = memory_limit_gb
+        self.enable_auto_cleanup = enable_auto_cleanup
+        self.cleanup_frequency = cleanup_frequency
+        
         self.metrics = PerformanceMetrics()
+        self.memory_manager = MemoryManager(memory_limit_gb)
         self._process = psutil.Process()
+        self._update_counter = 0
     
     def start_monitoring(self, total_rows: int) -> None:
         """
-        Start performance monitoring
+        Start performance monitoring with enhanced memory tracking
         
         Args:
             total_rows: Total number of rows to process
@@ -74,44 +216,89 @@ class PerformanceMonitor:
         self.metrics = PerformanceMetrics()
         self.metrics.rows_processed = 0
         self.metrics.start_time = time.time()
+        self._update_counter = 0
         
-        # Record initial memory usage
-        self._record_memory_usage()
+        # Record initial memory snapshot
+        self._record_memory_snapshot()
         
-        print(f"Performance monitoring started for {total_rows:,} rows")
+        # Initial memory cleanup to start fresh
+        if self.enable_auto_cleanup:
+            cleanup_triggered, before_mb, after_mb = self.memory_manager.check_memory_and_cleanup(force=True)
+            if cleanup_triggered:
+                self.metrics.memory_cleanup_events.append((time.time(), before_mb, after_mb))
+                self.metrics.gc_events.append((time.time(), "initial_cleanup"))
+        
+        print(f"Enhanced performance monitoring started for {total_rows:,} rows")
         print(f"Target: {self.target_rows_per_minute:,} rows/minute")
         print(f"Memory limit: {self.memory_limit_gb:.1f} GB")
+        print(f"Auto cleanup: {'enabled' if self.enable_auto_cleanup else 'disabled'}")
+        
+        initial_memory = self.get_current_memory_gb()
+        print(f"Initial memory usage: {initial_memory:.2f} GB")
     
     def update_progress(self, rows_processed: int, stage: str = None) -> None:
         """
-        Update processing progress
+        Update processing progress with enhanced memory monitoring
         
         Args:
             rows_processed: Number of rows processed so far
             stage: Optional stage name for detailed tracking
         """
         self.metrics.rows_processed = rows_processed
-        self._record_memory_usage()
+        self._update_counter += 1
+        
+        # Record memory snapshot
+        self._record_memory_snapshot()
         
         # Record stage timing if provided
         if stage:
             self.metrics.processing_stages[stage] = time.time()
         
-        # Check memory limit
+        # Check for automatic memory cleanup
+        if self.enable_auto_cleanup and self._update_counter % self.cleanup_frequency == 0:
+            cleanup_triggered, before_mb, after_mb = self.memory_manager.check_memory_and_cleanup()
+            if cleanup_triggered:
+                self.metrics.memory_cleanup_events.append((time.time(), before_mb, after_mb))
+                self.metrics.gc_events.append((time.time(), f"auto_cleanup_update_{self._update_counter}"))
+                
+                memory_saved = before_mb - after_mb
+                if memory_saved > 100:  # Only report significant cleanups
+                    print(f"🧹 Memory cleanup: {before_mb:.0f} MB → {after_mb:.0f} MB "
+                          f"(saved {memory_saved:.0f} MB)")
+        
+        # Check memory limit and warn
         current_memory_gb = self.get_current_memory_gb()
         if current_memory_gb > self.memory_limit_gb:
             print(f"⚠ Memory usage ({current_memory_gb:.1f} GB) exceeds limit "
                   f"({self.memory_limit_gb:.1f} GB)")
+            
+            # Force cleanup if significantly over limit
+            if current_memory_gb > self.memory_limit_gb * 1.2:
+                print("🚨 Forcing emergency memory cleanup...")
+                cleanup_triggered, before_mb, after_mb = self.memory_manager.check_memory_and_cleanup(force=True)
+                if cleanup_triggered:
+                    self.metrics.memory_cleanup_events.append((time.time(), before_mb, after_mb))
+                    self.metrics.gc_events.append((time.time(), "emergency_cleanup"))
+                    print(f"   Emergency cleanup: {before_mb:.0f} MB → {after_mb:.0f} MB")
     
     def finish_monitoring(self) -> PerformanceMetrics:
         """
-        Finish monitoring and return final metrics
+        Finish monitoring and return final metrics with cleanup
         
         Returns:
             Final performance metrics
         """
         self.metrics.end_time = time.time()
-        self._record_memory_usage()
+        
+        # Final memory cleanup
+        if self.enable_auto_cleanup:
+            cleanup_triggered, before_mb, after_mb = self.memory_manager.check_memory_and_cleanup(force=True)
+            if cleanup_triggered:
+                self.metrics.memory_cleanup_events.append((time.time(), before_mb, after_mb))
+                self.metrics.gc_events.append((time.time(), "final_cleanup"))
+        
+        # Record final memory snapshot
+        self._record_memory_snapshot()
         
         return self.metrics
     
@@ -120,11 +307,14 @@ class PerformanceMonitor:
         memory_info = self._process.memory_info()
         return memory_info.rss / (1024 ** 3)  # Convert bytes to GB
     
-    def _record_memory_usage(self) -> None:
-        """Record current memory usage"""
-        memory_info = self._process.memory_info()
-        memory_mb = memory_info.rss / (1024 ** 2)  # Convert bytes to MB
-        self.metrics.memory_usage_mb.append(memory_mb)
+    def _record_memory_snapshot(self) -> None:
+        """Record detailed memory snapshot"""
+        snapshot = self.memory_manager.get_memory_snapshot()
+        self.metrics.memory_snapshots.append(snapshot)
+    
+    def get_memory_manager(self) -> MemoryManager:
+        """Get the memory manager instance"""
+        return self.memory_manager
     
     def validate_performance_target(self, total_rows: int = 10_000_000) -> Dict[str, bool]:
         """
@@ -151,16 +341,29 @@ class PerformanceMonitor:
         return results
     
     def print_performance_report(self) -> None:
-        """Print comprehensive performance report"""
-        print("\n" + "="*60)
-        print("PERFORMANCE REPORT")
-        print("="*60)
+        """Print comprehensive performance report with enhanced memory analysis"""
+        print("\n" + "="*70)
+        print("ENHANCED PERFORMANCE REPORT")
+        print("="*70)
         
         # Basic metrics
         print(f"Rows processed: {self.metrics.rows_processed:,}")
         print(f"Elapsed time: {self.metrics.elapsed_time:.1f} seconds")
         print(f"Processing speed: {self.metrics.rows_per_minute:,.0f} rows/minute")
-        print(f"Peak memory usage: {self.metrics.peak_memory_gb:.2f} GB")
+        
+        # Enhanced memory metrics
+        print(f"\nMemory Analysis:")
+        print(f"  Peak memory usage: {self.metrics.peak_memory_gb:.2f} GB")
+        print(f"  Current memory usage: {self.metrics.current_memory_mb:.0f} MB")
+        print(f"  Memory growth rate: {self.metrics.memory_growth_rate_mb_per_minute:.1f} MB/min")
+        print(f"  Memory snapshots recorded: {len(self.metrics.memory_snapshots)}")
+        
+        # Memory cleanup statistics
+        if self.metrics.memory_cleanup_events:
+            total_cleaned = sum(before - after for _, before, after in self.metrics.memory_cleanup_events)
+            print(f"  Memory cleanup events: {len(self.metrics.memory_cleanup_events)}")
+            print(f"  Total memory cleaned: {total_cleaned:.0f} MB")
+            print(f"  GC events: {len(self.metrics.gc_events)}")
         
         # Target validation
         validation = self.validate_performance_target()
@@ -180,6 +383,37 @@ class PerformanceMonitor:
                 duration = stage_time - prev_time
                 print(f"  {stage}: {duration:.1f}s")
                 prev_time = stage_time
+        
+        # Memory optimization recommendations
+        self._print_memory_recommendations()
+    
+    def _print_memory_recommendations(self) -> None:
+        """Print memory optimization recommendations"""
+        print(f"\nMemory Optimization Recommendations:")
+        
+        # Analyze memory growth
+        if self.metrics.memory_growth_rate_mb_per_minute > 50:
+            print("  ⚠ High memory growth rate detected - check for memory leaks")
+        
+        # Analyze cleanup effectiveness
+        if self.metrics.memory_cleanup_events:
+            avg_cleanup = sum(before - after for _, before, after in self.metrics.memory_cleanup_events) / len(self.metrics.memory_cleanup_events)
+            if avg_cleanup < 50:
+                print("  ⚠ Low cleanup effectiveness - consider more aggressive cleanup strategies")
+            else:
+                print(f"  ✓ Good cleanup effectiveness: {avg_cleanup:.0f} MB average per cleanup")
+        
+        # Peak memory analysis
+        if self.metrics.peak_memory_gb > self.memory_limit_gb * 0.9:
+            print(f"  ⚠ Peak memory usage near limit - consider reducing chunk size")
+        else:
+            print(f"  ✓ Peak memory usage within safe limits")
+        
+        # Processing order recommendations
+        if len(self.metrics.memory_snapshots) > 10:
+            memory_variance = np.var([s.rss_mb for s in self.metrics.memory_snapshots])
+            if memory_variance > 10000:  # High variance
+                print("  💡 Consider optimizing processing order to reduce memory fragmentation")
 
 
 @contextmanager

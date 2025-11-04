@@ -1,15 +1,15 @@
 {
-  "timestamp": "2025-11-04 16:28:09",
-  "processing_time_seconds": 1132.0741872787476,
-  "processing_time_minutes": 18.86790312131246,
+  "timestamp": "2025-11-04 16:59:28",
+  "processing_time_seconds": 347.9191150665283,
+  "processing_time_minutes": 5.798651917775472,
   "input_rows": 517175,
   "output_rows": 517175,
   "data_retention_rate": 1.0,
-  "processing_rate_rows_per_second": 456.83843498205067,
+  "processing_rate_rows_per_second": 1486.4805571292252,
   "large_price_changes": "9149",
   "max_price_change": 161.0,
-  "labeling_time_seconds": 642.7055585384369,
-  "feature_time_seconds": 484.7693564891815,
+  "labeling_time_seconds": 108.7328200340271,
+  "feature_time_seconds": 236.10677671432495,
   "features_generated": 43,
   "features_with_nan": 31,
   "nan_percentages": {
@@ -47,38 +47,38 @@
   },
   "mode_statistics": {
     "low_vol_long": {
-      "win_rate": 0.1499898486972495,
-      "avg_weight": 1.2754826032637292,
-      "total_winners": 77571
+      "win_rate": 0.5192710397834389,
+      "avg_weight": "1.9314648",
+      "total_winners": 268554
     },
     "normal_vol_long": {
-      "win_rate": 0.09906124619326147,
-      "avg_weight": 1.1741147573616337,
-      "total_winners": 51232
+      "win_rate": 0.6114642045729202,
+      "avg_weight": "2.067652",
+      "total_winners": 316234
     },
     "high_vol_long": {
-      "win_rate": 0.06086914487359211,
-      "avg_weight": 1.1047378889078336,
-      "total_winners": 31480
+      "win_rate": 0.687802001256828,
+      "avg_weight": "2.1977355",
+      "total_winners": 355714
     },
     "low_vol_short": {
-      "win_rate": 0.15176681007395948,
-      "avg_weight": 1.282891184539849,
-      "total_winners": 78490
+      "win_rate": 0.17970512882486586,
+      "avg_weight": "1.3454752",
+      "total_winners": 92939
     },
     "normal_vol_short": {
-      "win_rate": 0.09821433750664668,
-      "avg_weight": 1.1797153076382434,
-      "total_winners": 50794
+      "win_rate": 0.1224015081935515,
+      "avg_weight": "1.234168",
+      "total_winners": 63303
     },
     "high_vol_short": {
-      "win_rate": 0.06370184173635617,
-      "avg_weight": 1.1138800542701697,
-      "total_winners": 32945
+      "win_rate": 0.08179823077294919,
+      "avg_weight": "1.158103",
+      "total_winners": 42304
     }
   },
-  "valid_modes": 6,
-  "peak_memory_mb": 693.1171875,
-  "overall_quality_score": 85.71428571428571,
-  "ready_for_production": true
+  "valid_modes": 3,
+  "peak_memory_mb": 633.6484375,
+  "overall_quality_score": 71.42857142857143,
+  "ready_for_production": false
 }

@@ -1122,7 +1122,7 @@ class WeightedLabelingEngine:
     
     def __init__(self, config: LabelingConfig = None):
         """
-        Initialize the weighted labeling engine
+        Initialize the weighted labeling engine with enhanced memory management
         
         Args:
             config: Configuration object, uses defaults if None
@@ -1131,6 +1131,7 @@ class WeightedLabelingEngine:
         self.label_calculators = {}
         self.weight_calculators = {}
         self.performance_monitor = None
+        self.memory_manager = None
         
         # Initialize calculators for all trading modes with vectorization enabled
         enable_vectorization = self.config.enable_memory_optimization
@@ -1144,8 +1145,16 @@ class WeightedLabelingEngine:
                 from .performance_monitor import PerformanceMonitor
                 self.performance_monitor = PerformanceMonitor(
                     target_rows_per_minute=self.config.performance_target_rows_per_minute,
-                    memory_limit_gb=self.config.memory_limit_gb
+                    memory_limit_gb=self.config.memory_limit_gb,
+                    enable_auto_cleanup=self.config.enable_memory_optimization,
+                    cleanup_frequency=max(1, self.config.chunk_size // 50000)  # Cleanup every ~50K rows
                 )
+                self.memory_manager = self.performance_monitor.get_memory_manager()
+                
+                # Register cleanup callbacks for memory optimization
+                if self.memory_manager:
+                    self.memory_manager.register_cleanup_callback(self._cleanup_intermediate_data)
+                    
             except ImportError as e:
                 print(f"Warning: Performance monitoring disabled due to import error: {e}")
                 self.performance_monitor = None
@@ -1253,6 +1262,16 @@ class WeightedLabelingEngine:
                 self.performance_monitor.finish_monitoring()
             raise
     
+    def _cleanup_intermediate_data(self) -> None:
+        """Cleanup intermediate data to free memory"""
+        # Clear any cached data in calculators
+        for calculator in self.label_calculators.values():
+            if hasattr(calculator, '_rollover_stats'):
+                calculator._rollover_stats.clear()
+        
+        # Force garbage collection
+        gc.collect()
+    
     def _process_single_chunk(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Process DataFrame in single pass (for smaller datasets)
@@ -1279,7 +1298,7 @@ class WeightedLabelingEngine:
     
     def _process_chunked(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Process DataFrame in chunks with performance monitoring and memory optimization
+        Enhanced chunked processing with memory optimization and leak prevention
         
         Args:
             df: Input DataFrame
@@ -1293,73 +1312,119 @@ class WeightedLabelingEngine:
         
         if self.config.enable_progress_tracking:
             print(f"Processing in {n_chunks} chunks of {chunk_size:,} rows each...")
+            print(f"Memory optimization: {'enabled' if self.config.enable_memory_optimization else 'disabled'}")
         
-        # Initialize result DataFrame
+        # Optimize processing order to minimize memory fragmentation
+        chunk_indices = list(range(n_chunks))
+        if self.memory_manager:
+            chunk_indices = self.memory_manager.optimize_processing_order(chunk_indices)
+        
+        # Initialize result DataFrame with memory-efficient approach
         result_df = df.copy()
         
-        # Add empty columns for all modes
+        # Pre-allocate columns for all modes to avoid repeated memory allocation
         for mode in TRADING_MODES.values():
-            result_df[mode.label_column] = 0
-            result_df[mode.weight_column] = 1.0
+            result_df[mode.label_column] = np.zeros(n_rows, dtype=np.int8)  # Use int8 for binary labels
+            result_df[mode.weight_column] = np.ones(n_rows, dtype=np.float32)  # Use float32 for weights
         
-        # Process each chunk
-        for chunk_idx in range(n_chunks):
+        # Track memory usage per chunk for optimization
+        chunk_memory_usage = []
+        
+        # Process each chunk with enhanced memory management
+        for i, chunk_idx in enumerate(chunk_indices):
             start_idx = chunk_idx * chunk_size
             end_idx = min(start_idx + chunk_size, n_rows)
             
-            # Update performance monitoring
+            # Memory check before processing chunk
             if self.performance_monitor:
+                pre_chunk_memory = self.performance_monitor.get_current_memory_gb()
                 self.performance_monitor.update_progress(
                     end_idx, f"chunk_{chunk_idx + 1}_of_{n_chunks}"
                 )
             
-            if self.config.enable_progress_tracking and chunk_idx % 10 == 0:
+            if self.config.enable_progress_tracking and i % 5 == 0:  # Report every 5 chunks
                 current_memory = self.performance_monitor.get_current_memory_gb() if self.performance_monitor else 0
                 print(f"  Processing chunk {chunk_idx + 1}/{n_chunks} "
                       f"(rows {start_idx:,}-{end_idx:,}) - Memory: {current_memory:.2f} GB")
             
-            # Extract chunk with some overlap for lookforward calculations
-            # Need extra rows for the 15-minute timeout lookforward
+            # Extract chunk with minimal memory footprint
             extended_end = min(end_idx + TIMEOUT_SECONDS, n_rows)
-            chunk_df = df.iloc[start_idx:extended_end].copy()
             
-            # Use optimized batch processing if available
-            if self.config.enable_memory_optimization and hasattr(self, '_use_optimized_processing'):
-                results = self._process_chunk_optimized(chunk_df)
-                
-                # Update results
-                actual_chunk_size = end_idx - start_idx
-                for mode_name, mode_results in results.items():
-                    mode = TRADING_MODES[mode_name]
-                    labels = mode_results['labels'][:actual_chunk_size]
+            # Use view instead of copy when possible to save memory
+            try:
+                chunk_df = df.iloc[start_idx:extended_end]
+                chunk_needs_copy = False
+            except:
+                chunk_df = df.iloc[start_idx:extended_end].copy()
+                chunk_needs_copy = True
+            
+            # Process chunk with memory-optimized approach
+            try:
+                if self.config.enable_memory_optimization and hasattr(self, '_process_chunk_optimized'):
+                    results = self._process_chunk_optimized(chunk_df)
                     
-                    # Calculate weights for this chunk
-                    weights = self.weight_calculators[mode_name].calculate_weights(
-                        labels, mode_results['mae_ticks'][:actual_chunk_size], 
-                        mode_results['seconds_to_target'][:actual_chunk_size], 
-                        chunk_df['timestamp'].iloc[:actual_chunk_size]
-                    )
-                    
-                    result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.label_column)] = labels
-                    result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.weight_column)] = weights
-            else:
-                # Standard processing
-                for mode_name in TRADING_MODES.keys():
-                    labels, mae_ticks, seconds_to_target = self.label_calculators[mode_name].calculate_labels(chunk_df)
-                    weights = self.weight_calculators[mode_name].calculate_weights(
-                        labels, mae_ticks, seconds_to_target, chunk_df['timestamp']
-                    )
-                    
-                    # Only update the actual chunk range (not the extended part)
+                    # Update results with memory-efficient assignment
                     actual_chunk_size = end_idx - start_idx
-                    mode = TRADING_MODES[mode_name]
-                    result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.label_column)] = labels[:actual_chunk_size]
-                    result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.weight_column)] = weights[:actual_chunk_size]
+                    for mode_name, mode_results in results.items():
+                        mode = TRADING_MODES[mode_name]
+                        labels = mode_results['labels'][:actual_chunk_size]
+                        
+                        # Calculate weights for this chunk
+                        weights = self.weight_calculators[mode_name].calculate_weights(
+                            labels, mode_results['mae_ticks'][:actual_chunk_size], 
+                            mode_results['seconds_to_target'][:actual_chunk_size], 
+                            chunk_df['timestamp'].iloc[:actual_chunk_size]
+                        )
+                        
+                        # Direct assignment to avoid intermediate arrays
+                        result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.label_column)] = labels.astype(np.int8)
+                        result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.weight_column)] = weights.astype(np.float32)
+                else:
+                    # Standard processing with memory optimization
+                    for mode_name in TRADING_MODES.keys():
+                        labels, mae_ticks, seconds_to_target = self.label_calculators[mode_name].calculate_labels(chunk_df)
+                        weights = self.weight_calculators[mode_name].calculate_weights(
+                            labels, mae_ticks, seconds_to_target, chunk_df['timestamp']
+                        )
+                        
+                        # Only update the actual chunk range (not the extended part)
+                        actual_chunk_size = end_idx - start_idx
+                        mode = TRADING_MODES[mode_name]
+                        
+                        # Use efficient assignment with proper data types
+                        result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.label_column)] = labels[:actual_chunk_size].astype(np.int8)
+                        result_df.iloc[start_idx:end_idx, result_df.columns.get_loc(mode.weight_column)] = weights[:actual_chunk_size].astype(np.float32)
+                        
+                        # Clear intermediate arrays to free memory immediately
+                        del labels, mae_ticks, seconds_to_target, weights
+                
+            finally:
+                # Ensure chunk data is cleaned up
+                if chunk_needs_copy:
+                    del chunk_df
             
-            # Memory cleanup after each chunk
-            if self.config.enable_memory_optimization and chunk_idx % 10 == 0:
-                del chunk_df
-                gc.collect()
+            # Enhanced memory cleanup strategy
+            if self.config.enable_memory_optimization:
+                # Force cleanup every 5 chunks or when memory usage is high
+                if (i + 1) % 5 == 0 or (self.performance_monitor and self.performance_monitor.get_current_memory_gb() > self.config.memory_limit_gb * 0.8):
+                    # Clear intermediate calculator data
+                    self._cleanup_intermediate_data()
+                    
+                    # Track memory usage for optimization
+                    if self.performance_monitor:
+                        post_chunk_memory = self.performance_monitor.get_current_memory_gb()
+                        chunk_memory_usage.append(post_chunk_memory - pre_chunk_memory)
+        
+        # Final memory cleanup and optimization report
+        if self.config.enable_memory_optimization and chunk_memory_usage:
+            avg_chunk_memory = np.mean(chunk_memory_usage)
+            max_chunk_memory = np.max(chunk_memory_usage)
+            
+            if self.config.enable_progress_tracking:
+                print(f"  Memory usage per chunk: avg={avg_chunk_memory:.3f} GB, max={max_chunk_memory:.3f} GB")
+                
+                if max_chunk_memory > 1.0:  # More than 1GB per chunk
+                    print(f"  💡 Consider reducing chunk size from {chunk_size:,} to {int(chunk_size * 0.7):,} for better memory efficiency")
         
         return result_df
     
