@@ -275,20 +275,25 @@ class OutputDataFrame:
                 min_value = self.df[weight_col].min()
                 raise ValidationError(f"{weight_col} contains {non_positive_count} non-positive values (min: {min_value}) - weights must be positive")
     
-    def get_statistics(self) -> Dict[str, Dict[str, float]]:
+    def get_statistics(self, processing_metrics=None, rollover_events=None, feature_quality=None) -> Dict[str, Dict[str, float]]:
         """
         Get comprehensive statistics for each trading mode
         
-        Enhanced to include processing metrics, data quality flags, and detailed
-        validation information as specified in requirement 3.1.
+        Enhanced to include processing metrics, rollover event tracking, feature quality metrics,
+        and data quality flags as specified in requirements 3.1, 3.2, 3.4, and 3.5.
+        
+        Args:
+            processing_metrics: Optional dict with processing time and memory usage metrics
+            rollover_events: Optional list of rollover events detected during processing
+            feature_quality: Optional dict with feature engineering quality metrics
         
         Returns:
-            Dictionary with statistics per mode including win rates, weight distributions,
-            validation checks, and data quality metrics
+            Dictionary with comprehensive statistics per mode including win rates, weight distributions,
+            validation checks, data quality metrics, processing performance, and rollover statistics
         """
         stats = {}
         
-        # Overall dataset statistics
+        # Overall dataset statistics with enhanced processing metrics
         total_bars = len(self.df)
         date_range = None
         if 'timestamp' in self.df.columns:
@@ -296,6 +301,47 @@ class OutputDataFrame:
                 'start': self.df['timestamp'].min(),
                 'end': self.df['timestamp'].max(),
                 'duration_hours': (self.df['timestamp'].max() - self.df['timestamp'].min()).total_seconds() / 3600
+            }
+        
+        # Enhanced processing metrics collection
+        processing_stats = {}
+        if processing_metrics:
+            processing_stats = {
+                'processing_time_minutes': processing_metrics.get('processing_time_minutes', 0),
+                'memory_peak_mb': processing_metrics.get('memory_peak_mb', 0),
+                'memory_final_mb': processing_metrics.get('memory_final_mb', 0),
+                'rows_per_minute': processing_metrics.get('rows_per_minute', 0),
+                'processing_efficiency_score': processing_metrics.get('processing_efficiency_score', 0),
+                'stage_times': processing_metrics.get('stage_times', {}),
+                'slowest_stage': processing_metrics.get('slowest_stage', 'unknown'),
+                'slowest_stage_time': processing_metrics.get('slowest_stage_time', 0)
+            }
+        
+        # Enhanced rollover event statistics
+        rollover_stats = {}
+        if rollover_events:
+            rollover_stats = {
+                'total_rollover_events': len(rollover_events),
+                'bars_excluded_rollover': sum(event.get('bars_affected', 0) for event in rollover_events),
+                'rollover_affected_percentage': (sum(event.get('bars_affected', 0) for event in rollover_events) / total_bars * 100) if total_bars > 0 else 0,
+                'avg_price_gap': np.mean([event.get('price_gap', 0) for event in rollover_events]) if rollover_events else 0,
+                'max_price_gap': max([event.get('price_gap', 0) for event in rollover_events]) if rollover_events else 0,
+                'rollover_events_detail': rollover_events[:5]  # Store first 5 events for analysis
+            }
+        
+        # Enhanced feature quality metrics
+        feature_stats = {}
+        if feature_quality:
+            feature_stats = {
+                'features_generated': feature_quality.get('features_generated', 0),
+                'expected_features': feature_quality.get('expected_features', 43),
+                'feature_completeness': feature_quality.get('feature_completeness', 0),
+                'avg_nan_percentage': feature_quality.get('avg_nan_percentage', 0),
+                'max_nan_percentage': feature_quality.get('max_nan_percentage', 0),
+                'high_nan_features_count': len(feature_quality.get('high_nan_features', [])),
+                'features_with_outliers_count': len(feature_quality.get('features_with_outliers', [])),
+                'suspicious_ranges_count': len(feature_quality.get('suspicious_ranges', [])),
+                'feature_quality_score': feature_quality.get('quality_score', 0)
             }
         
         for mode in TRADING_MODES.values():
@@ -391,14 +437,23 @@ class OutputDataFrame:
                 )
             }
         
-        # Add overall dataset statistics
+        # Add comprehensive dataset statistics with enhanced metrics
         stats['dataset_summary'] = {
             'total_bars': total_bars,
             'date_range': date_range,
             'all_modes_valid': all(stats[mode.name]['validation_passed'] for mode in TRADING_MODES.values()),
             'modes_with_reasonable_win_rates': sum(1 for mode in TRADING_MODES.values() 
                                                   if stats[mode.name]['win_rate_reasonable']),
-            'total_modes': len(TRADING_MODES)
+            'total_modes': len(TRADING_MODES),
+            
+            # Enhanced processing metrics
+            'processing_metrics': processing_stats,
+            
+            # Enhanced rollover statistics
+            'rollover_statistics': rollover_stats,
+            
+            # Enhanced feature quality metrics
+            'feature_quality': feature_stats
         }
         
         return stats
@@ -1141,9 +1196,13 @@ class WeightedLabelingEngine:
                     stats = output_data.get_statistics()
                     print("\nMode Statistics:")
                     for mode_name, mode_stats in stats.items():
-                        print(f"  {mode_name}: {mode_stats['win_rate']:.1%} win rate "
-                              f"({mode_stats['total_winners']} winners), "
-                              f"avg weight: {mode_stats['avg_weight']:.3f}")
+                        # Skip dataset_summary and other non-mode entries
+                        if mode_name == 'dataset_summary':
+                            continue
+                        if isinstance(mode_stats, dict) and 'win_rate' in mode_stats:
+                            print(f"  {mode_name}: {mode_stats['win_rate']:.1%} win rate "
+                                  f"({mode_stats['total_winners']} winners), "
+                                  f"avg weight: {mode_stats['avg_weight']:.3f}")
                     
                     # Show quality assurance results
                     qa_results = output_data.validate_quality_assurance()
