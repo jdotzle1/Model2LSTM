@@ -1,15 +1,15 @@
 {
-  "timestamp": "2025-11-04 09:10:42",
-  "processing_time_seconds": 1373.6044816970825,
-  "processing_time_minutes": 22.893408028284707,
+  "timestamp": "2025-11-04 16:28:09",
+  "processing_time_seconds": 1132.0741872787476,
+  "processing_time_minutes": 18.86790312131246,
   "input_rows": 517175,
   "output_rows": 517175,
   "data_retention_rate": 1.0,
-  "processing_rate_rows_per_second": 376.50940055250294,
+  "processing_rate_rows_per_second": 456.83843498205067,
   "large_price_changes": "9149",
   "max_price_change": 161.0,
-  "labeling_time_seconds": 737.011039018631,
-  "feature_time_seconds": 629.6421751976013,
+  "labeling_time_seconds": 642.7055585384369,
+  "feature_time_seconds": 484.7693564891815,
   "features_generated": 43,
   "features_with_nan": 31,
   "nan_percentages": {
@@ -78,7 +78,7 @@
     }
   },
   "valid_modes": 6,
-  "peak_memory_mb": 685.84375,
+  "peak_memory_mb": 693.1171875,
   "overall_quality_score": 85.71428571428571,
   "ready_for_production": true
 }
