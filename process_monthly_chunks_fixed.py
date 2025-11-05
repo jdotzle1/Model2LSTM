@@ -20,6 +20,14 @@ from collections import defaultdict, deque
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# Import enhanced S3 operations
+try:
+    from src.data_pipeline.s3_operations import EnhancedS3Operations
+    S3_OPERATIONS_AVAILABLE = True
+except ImportError:
+    print("⚠️  Enhanced S3 operations not available, using basic operations")
+    S3_OPERATIONS_AVAILABLE = False
+
 class EnhancedProgressTracker:
     """Enhanced progress tracking with improved time estimation and bottleneck identification"""
     
@@ -1147,166 +1155,189 @@ def process_single_month(file_info):
 def download_monthly_file(file_info):
     """
     Enhanced download with corruption detection and recovery strategies
+    Uses optimized S3 operations with retry logic and integrity validation
     """
-    bucket_name = "es-1-second-data"
-    s3_key = file_info['s3_key']
-    local_file = Path(file_info['local_file'])
-    month_str = file_info['month_str']
-    
-    # Ensure download directory exists
-    local_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Enhanced existing file validation with corruption detection
-    if local_file.exists():
-        log_progress(f"   📁 Existing file found, validating integrity", level="INFO")
-        
-        validation_result = validate_file_integrity(local_file, "dbn", expected_min_size_mb=1.0)
-        
-        if validation_result['valid']:
-            log_progress(f"   ✅ Existing file validated successfully ({validation_result['size_mb']:.1f} MB)")
-            return True
-        else:
-            if validation_result['corruption_detected']:
-                log_progress(f"   🔧 Corruption detected in existing file: {validation_result['error_message']}", level="WARNING")
+    try:
+        # Use enhanced S3 operations if available
+        if S3_OPERATIONS_AVAILABLE:
+            log_progress(f"   🚀 Using enhanced S3 download operations")
+            
+            s3_ops = EnhancedS3Operations("es-1-second-data")
+            success = s3_ops.download_monthly_file_optimized(file_info)
+            
+            if success:
+                log_progress(f"   ✅ Enhanced download completed successfully")
+                return True
             else:
-                log_progress(f"   ⚠️  Existing file validation failed: {validation_result['error_message']}", level="WARNING")
-            
-            # Remove corrupted/invalid file
-            try:
-                local_file.unlink()
-                log_progress(f"   🗑️  Removed invalid existing file", level="INFO")
-            except Exception as e:
-                log_progress(f"   ⚠️  Could not remove invalid file: {e}", level="WARNING")
-    
-    # Enhanced S3 path discovery with more alternatives
-    s3_paths_to_try = [
-        s3_key,  # Original path
-        f"databento/{file_info['filename']}",  # Alternative path 1
-        f"raw/{file_info['filename']}",  # Alternative path 2
-        f"es-data/{file_info['filename']}",  # Alternative path 3
-        f"raw-data/{file_info['filename']}",  # Alternative path 4
-        f"monthly/{file_info['filename']}",  # Alternative path 5
-        f"dbn/{file_info['filename']}"  # Alternative path 6
-    ]
-    
-    s3_client = boto3.client('s3')
-    download_attempts = []
-    
-    for path_index, attempt_path in enumerate(s3_paths_to_try, 1):
-        log_progress(f"   🔍 Trying S3 path {path_index}/{len(s3_paths_to_try)}: {attempt_path}")
+                log_progress(f"   ⚠️  Enhanced download failed, falling back to basic download", level="WARNING")
+                # Fall through to basic download
         
-        try:
-            # Enhanced S3 file existence check with metadata
-            response = s3_client.head_object(Bucket=bucket_name, Key=attempt_path)
-            file_size_mb = response['ContentLength'] / (1024**2)
-            last_modified = response.get('LastModified', 'unknown')
+        # Fallback to basic download (original implementation)
+        log_progress(f"   🔄 Using basic S3 download operations")
+        
+        bucket_name = "es-1-second-data"
+        s3_key = file_info['s3_key']
+        local_file = Path(file_info['local_file'])
+        month_str = file_info['month_str']
+        
+        # Ensure download directory exists
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Enhanced existing file validation with corruption detection
+        if local_file.exists():
+            log_progress(f"   📁 Existing file found, validating integrity", level="INFO")
             
-            log_progress(f"   📦 Found file: {file_size_mb:.1f} MB, modified: {last_modified}")
+            validation_result = validate_file_integrity(local_file, "dbn", expected_min_size_mb=1.0)
             
-            # Validate expected file size (monthly ES data should be substantial)
-            if file_size_mb < 1.0:  # Less than 1MB is suspicious for monthly data
-                log_progress(f"   ⚠️  File size suspiciously small: {file_size_mb:.1f} MB", level="WARNING")
-                download_attempts.append({
-                    'path': attempt_path,
-                    'status': 'skipped',
-                    'reason': f'file_too_small_{file_size_mb:.1f}MB'
-                })
-                continue
-            
-            # Enhanced download with corruption detection
-            download_success = False
-            corruption_retry_count = 0
-            max_corruption_retries = 2
-            
-            while not download_success and corruption_retry_count <= max_corruption_retries:
-                if corruption_retry_count > 0:
-                    log_progress(f"   🔄 Retry {corruption_retry_count}/{max_corruption_retries} for corruption recovery")
+            if validation_result['valid']:
+                log_progress(f"   ✅ Existing file validated successfully ({validation_result['size_mb']:.1f} MB)")
+                return True
+            else:
+                if validation_result['corruption_detected']:
+                    log_progress(f"   🔧 Corruption detected in existing file: {validation_result['error_message']}", level="WARNING")
+                else:
+                    log_progress(f"   ⚠️  Existing file validation failed: {validation_result['error_message']}", level="WARNING")
                 
-                # Download with retry logic
-                if download_with_retry(s3_client, bucket_name, attempt_path, local_file):
-                    # Enhanced validation with corruption detection
-                    validation_result = validate_file_integrity(local_file, "dbn", expected_min_size_mb=1.0)
+                # Remove corrupted/invalid file
+                try:
+                    local_file.unlink()
+                    log_progress(f"   🗑️  Removed invalid existing file", level="INFO")
+                except Exception as e:
+                    log_progress(f"   ⚠️  Could not remove invalid file: {e}", level="WARNING")
+        
+        # Enhanced S3 path discovery with more alternatives
+        s3_paths_to_try = [
+            s3_key,  # Original path
+            f"databento/{file_info['filename']}",  # Alternative path 1
+            f"raw/{file_info['filename']}",  # Alternative path 2
+            f"es-data/{file_info['filename']}",  # Alternative path 3
+            f"raw-data/{file_info['filename']}",  # Alternative path 4
+            f"monthly/{file_info['filename']}",  # Alternative path 5
+            f"dbn/{file_info['filename']}"  # Alternative path 6
+        ]
+        
+        s3_client = boto3.client('s3')
+        download_attempts = []
+        
+        for path_index, attempt_path in enumerate(s3_paths_to_try, 1):
+            log_progress(f"   🔍 Trying S3 path {path_index}/{len(s3_paths_to_try)}: {attempt_path}")
+            
+            try:
+                # Enhanced S3 file existence check with metadata
+                response = s3_client.head_object(Bucket=bucket_name, Key=attempt_path)
+                file_size_mb = response['ContentLength'] / (1024**2)
+                last_modified = response.get('LastModified', 'unknown')
+                
+                log_progress(f"   📦 Found file: {file_size_mb:.1f} MB, modified: {last_modified}")
+                
+                # Validate expected file size (monthly ES data should be substantial)
+                if file_size_mb < 1.0:  # Less than 1MB is suspicious for monthly data
+                    log_progress(f"   ⚠️  File size suspiciously small: {file_size_mb:.1f} MB", level="WARNING")
+                    download_attempts.append({
+                        'path': attempt_path,
+                        'status': 'skipped',
+                        'reason': f'file_too_small_{file_size_mb:.1f}MB'
+                    })
+                    continue
+                
+                # Enhanced download with corruption detection
+                download_success = False
+                corruption_retry_count = 0
+                max_corruption_retries = 2
+                
+                while not download_success and corruption_retry_count <= max_corruption_retries:
+                    if corruption_retry_count > 0:
+                        log_progress(f"   🔄 Retry {corruption_retry_count}/{max_corruption_retries} for corruption recovery")
                     
-                    if validation_result['valid']:
-                        log_progress(f"   ✅ Downloaded and validated successfully ({validation_result['size_mb']:.1f} MB)")
-                        download_attempts.append({
-                            'path': attempt_path,
-                            'status': 'success',
-                            'size_mb': validation_result['size_mb'],
-                            'corruption_retries': corruption_retry_count
-                        })
-                        return True
-                    else:
-                        if validation_result['corruption_detected']:
-                            log_progress(f"   🔧 Downloaded file corruption detected: {validation_result['error_message']}", level="WARNING")
-                            
-                            # Remove corrupted download
-                            try:
-                                local_file.unlink()
-                            except Exception:
-                                pass
-                            
-                            corruption_retry_count += 1
-                            
-                            if corruption_retry_count <= max_corruption_retries:
-                                log_progress(f"   🔄 Will retry download due to corruption", level="INFO")
-                                continue
+                    # Download with retry logic
+                    if download_with_retry(s3_client, bucket_name, attempt_path, local_file):
+                        # Enhanced validation with corruption detection
+                        validation_result = validate_file_integrity(local_file, "dbn", expected_min_size_mb=1.0)
+                        
+                        if validation_result['valid']:
+                            log_progress(f"   ✅ Downloaded and validated successfully ({validation_result['size_mb']:.1f} MB)")
+                            download_attempts.append({
+                                'path': attempt_path,
+                                'status': 'success',
+                                'size_mb': validation_result['size_mb'],
+                                'corruption_retries': corruption_retry_count
+                            })
+                            return True
+                        else:
+                            if validation_result['corruption_detected']:
+                                log_progress(f"   🔧 Downloaded file corruption detected: {validation_result['error_message']}", level="WARNING")
+                                
+                                # Remove corrupted download
+                                try:
+                                    local_file.unlink()
+                                except Exception:
+                                    pass
+                                
+                                corruption_retry_count += 1
+                                
+                                if corruption_retry_count <= max_corruption_retries:
+                                    log_progress(f"   🔄 Will retry download due to corruption", level="INFO")
+                                    continue
+                                else:
+                                    log_progress(f"   ❌ Max corruption retries reached for this path", level="ERROR")
+                                    download_attempts.append({
+                                        'path': attempt_path,
+                                        'status': 'failed',
+                                        'reason': 'persistent_corruption',
+                                        'corruption_retries': corruption_retry_count
+                                    })
+                                    break
                             else:
-                                log_progress(f"   ❌ Max corruption retries reached for this path", level="ERROR")
+                                log_progress(f"   ❌ Downloaded file validation failed: {validation_result['error_message']}", level="ERROR")
                                 download_attempts.append({
                                     'path': attempt_path,
                                     'status': 'failed',
-                                    'reason': 'persistent_corruption',
-                                    'corruption_retries': corruption_retry_count
+                                    'reason': 'validation_failed',
+                                    'validation_error': validation_result['error_message']
                                 })
                                 break
-                        else:
-                            log_progress(f"   ❌ Downloaded file validation failed: {validation_result['error_message']}", level="ERROR")
-                            download_attempts.append({
-                                'path': attempt_path,
-                                'status': 'failed',
-                                'reason': 'validation_failed',
-                                'validation_error': validation_result['error_message']
-                            })
-                            break
-                else:
-                    log_progress(f"   ❌ Download failed for path: {attempt_path}", level="ERROR")
-                    download_attempts.append({
-                        'path': attempt_path,
-                        'status': 'failed',
-                        'reason': 'download_failed'
-                    })
-                    break
-            
-        except s3_client.exceptions.NoSuchKey:
-            log_progress(f"   ❌ File not found at: {attempt_path}")
-            download_attempts.append({
-                'path': attempt_path,
-                'status': 'not_found'
-            })
-            continue
-        except Exception as e:
-            log_progress(f"   ❌ Error checking path {attempt_path}", level="ERROR", error_details=e)
-            download_attempts.append({
-                'path': attempt_path,
-                'status': 'error',
-                'error': str(e)
-            })
-            continue
-    
-    # Enhanced failure reporting with detailed attempt history
-    log_progress(f"   ❌ File not found or downloadable in any S3 path for {month_str}", level="ERROR")
-    log_progress(f"   📊 Download attempt summary:", level="INFO")
-    
-    for i, attempt in enumerate(download_attempts, 1):
-        status_msg = f"     {i}. {attempt['path']}: {attempt['status']}"
-        if 'reason' in attempt:
-            status_msg += f" ({attempt['reason']})"
-        if 'size_mb' in attempt:
-            status_msg += f" - {attempt['size_mb']:.1f} MB"
-        log_progress(status_msg, level="INFO")
-    
-    return False
+                    else:
+                        log_progress(f"   ❌ Download failed for path: {attempt_path}", level="ERROR")
+                        download_attempts.append({
+                            'path': attempt_path,
+                            'status': 'failed',
+                            'reason': 'download_failed'
+                        })
+                        break
+                
+            except s3_client.exceptions.NoSuchKey:
+                log_progress(f"   ❌ File not found at: {attempt_path}")
+                download_attempts.append({
+                    'path': attempt_path,
+                    'status': 'not_found'
+                })
+                continue
+            except Exception as e:
+                log_progress(f"   ❌ Error checking path {attempt_path}", level="ERROR", error_details=e)
+                download_attempts.append({
+                    'path': attempt_path,
+                    'status': 'error',
+                    'error': str(e)
+                })
+                continue
+        
+        # Enhanced failure reporting with detailed attempt history
+        log_progress(f"   ❌ File not found or downloadable in any S3 path for {month_str}", level="ERROR")
+        log_progress(f"   📊 Download attempt summary:", level="INFO")
+        
+        for i, attempt in enumerate(download_attempts, 1):
+            status_msg = f"     {i}. {attempt['path']}: {attempt['status']}"
+            if 'reason' in attempt:
+                status_msg += f" ({attempt['reason']})"
+            if 'size_mb' in attempt:
+                status_msg += f" - {attempt['size_mb']:.1f} MB"
+            log_progress(status_msg, level="INFO")
+        
+        return False
+        
+    except Exception as e:
+        log_progress(f"   ❌ Enhanced download failed: {e}")
+        return False
 
 def download_with_retry(s3_client, bucket_name, s3_key, local_file, max_retries=3):
     """Download file with exponential backoff retry"""
@@ -1980,6 +2011,7 @@ def process_monthly_data(file_info):
 def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
     """
     Enhanced upload monthly results to S3 with comprehensive statistics and metadata
+    Uses optimized S3 operations with compression, retry logic, and integrity validation
     
     Args:
         file_info: Monthly file information
@@ -1987,6 +2019,27 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
         monthly_statistics: Optional MonthlyProcessingStatistics object with comprehensive metrics
     """
     try:
+        # Use enhanced S3 operations if available
+        if S3_OPERATIONS_AVAILABLE:
+            log_progress(f"   🚀 Using enhanced S3 operations with optimization")
+            
+            s3_ops = EnhancedS3Operations("es-1-second-data")
+            success = s3_ops.upload_monthly_results_optimized(
+                file_info=file_info,
+                processed_file=processed_file,
+                monthly_statistics=monthly_statistics
+            )
+            
+            if success:
+                log_progress(f"   ✅ Enhanced upload completed successfully")
+                return True
+            else:
+                log_progress(f"   ⚠️  Enhanced upload failed, falling back to basic upload", level="WARNING")
+                # Fall through to basic upload
+        
+        # Fallback to basic upload (original implementation)
+        log_progress(f"   🔄 Using basic S3 upload operations")
+        
         # Validate file before upload
         if not validate_processed_file(processed_file):
             log_progress(f"   ❌ Processed file failed validation")
@@ -2042,7 +2095,7 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
             'label_columns_count': str(len(label_columns)),
             'weight_columns_count': str(len(weight_columns)),
             'feature_columns_count': str(len(feature_columns)),
-            'pipeline_version': '3.0_enhanced_statistics',
+            'pipeline_version': '4.0_optimized_s3_fallback',
             'compression': 'snappy',
             'data_format': 'parquet'
         }
@@ -2051,32 +2104,31 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
         if monthly_statistics:
             # Add quality flags and reprocessing recommendations
             quality_flags = []
-            if monthly_statistics.requires_reprocessing:
-                quality_flags.extend(monthly_statistics.reprocessing_reasons)
+            if hasattr(monthly_statistics, 'requires_reprocessing') and monthly_statistics.requires_reprocessing:
+                if hasattr(monthly_statistics, 'reprocessing_reasons'):
+                    quality_flags.extend(monthly_statistics.reprocessing_reasons)
             
             # Add mode-specific quality flags
-            for mode_name, mode_stats in monthly_statistics.mode_statistics.items():
-                if mode_stats.quality_flags:
-                    quality_flags.extend([f"{mode_name}_{flag}" for flag in mode_stats.quality_flags])
+            if hasattr(monthly_statistics, 'mode_statistics'):
+                for mode_name, mode_stats in monthly_statistics.mode_statistics.items():
+                    if hasattr(mode_stats, 'quality_flags') and mode_stats.quality_flags:
+                        quality_flags.extend([f"{mode_name}_{flag}" for flag in mode_stats.quality_flags])
             
-            enhanced_metadata.update({
-                'overall_quality_score': str(monthly_statistics.overall_quality_score),
-                'requires_reprocessing': str(monthly_statistics.requires_reprocessing),
-                'processing_successful': str(monthly_statistics.processing_successful),
-                'total_rollover_events': str(monthly_statistics.total_rollover_events),
-                'rollover_affected_percentage': str(monthly_statistics.rollover_affected_percentage),
-                'processing_time_minutes': str(monthly_statistics.performance_metrics.total_processing_time_minutes),
-                'peak_memory_mb': str(monthly_statistics.performance_metrics.peak_memory_mb),
-                'rows_per_minute': str(monthly_statistics.performance_metrics.rows_per_minute),
-                'feature_quality_score': str(monthly_statistics.feature_statistics.quality_score),
-                'features_generated': str(monthly_statistics.feature_statistics.features_generated),
-                'data_retention_rate': str(monthly_statistics.data_quality.overall_retention_rate),
-                'quality_flags': ','.join(quality_flags) if quality_flags else 'none',
-                'reprocessing_priority': 'high' if monthly_statistics.overall_quality_score < 0.5 else 
-                                       'medium' if monthly_statistics.overall_quality_score < 0.7 else 'low'
-            })
+            # Safely add statistics metadata
+            stats_metadata = {}
+            if hasattr(monthly_statistics, 'overall_quality_score'):
+                stats_metadata['overall_quality_score'] = str(monthly_statistics.overall_quality_score)
+            if hasattr(monthly_statistics, 'requires_reprocessing'):
+                stats_metadata['requires_reprocessing'] = str(monthly_statistics.requires_reprocessing)
+            if hasattr(monthly_statistics, 'processing_successful'):
+                stats_metadata['processing_successful'] = str(monthly_statistics.processing_successful)
+            if hasattr(monthly_statistics, 'total_rollover_events'):
+                stats_metadata['total_rollover_events'] = str(monthly_statistics.total_rollover_events)
+            
+            enhanced_metadata.update(stats_metadata)
+            enhanced_metadata['quality_flags'] = ','.join(quality_flags) if quality_flags else 'none'
         
-        # Upload main parquet file with enhanced metadata
+        # Upload main parquet file with enhanced metadata and retry logic
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -2087,7 +2139,7 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                     ExtraArgs={'Metadata': enhanced_metadata}
                 )
                 
-                # Verify upload
+                # Verify upload with integrity check
                 try:
                     response = s3_client.head_object(Bucket=bucket_name, Key=s3_key)
                     uploaded_size = response['ContentLength']
@@ -2104,28 +2156,45 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                                 # Create temporary JSON file
                                 import tempfile
                                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                                    temp_file.write(monthly_statistics.to_json())
+                                    if hasattr(monthly_statistics, 'to_json'):
+                                        temp_file.write(monthly_statistics.to_json())
+                                    else:
+                                        # Fallback for basic statistics
+                                        import json
+                                        json.dump({
+                                            'month': file_info['month_str'],
+                                            'processing_date': timestamp,
+                                            'statistics_available': True
+                                        }, temp_file, indent=2)
                                     temp_json_path = temp_file.name
                                 
-                                # Upload statistics JSON
-                                s3_client.upload_file(
-                                    temp_json_path,
-                                    bucket_name,
-                                    stats_s3_key,
-                                    ExtraArgs={
-                                        'Metadata': {
-                                            'content_type': 'application/json',
-                                            'month': file_info['month_str'],
-                                            'statistics_version': '1.0',
-                                            'related_data_file': s3_key
-                                        }
-                                    }
-                                )
+                                # Upload statistics JSON with retry
+                                for stats_attempt in range(2):  # Fewer retries for statistics
+                                    try:
+                                        s3_client.upload_file(
+                                            temp_json_path,
+                                            bucket_name,
+                                            stats_s3_key,
+                                            ExtraArgs={
+                                                'Metadata': {
+                                                    'content_type': 'application/json',
+                                                    'month': file_info['month_str'],
+                                                    'statistics_version': '1.0',
+                                                    'related_data_file': s3_key
+                                                }
+                                            }
+                                        )
+                                        log_progress(f"   📈 Statistics uploaded: s3://{bucket_name}/{stats_s3_key}")
+                                        break
+                                    except Exception as stats_retry_error:
+                                        if stats_attempt == 0:
+                                            log_progress(f"   ⚠️  Statistics upload retry {stats_attempt + 1}: {stats_retry_error}")
+                                            time.sleep(2)
+                                        else:
+                                            log_progress(f"   ⚠️  Statistics upload failed: {stats_retry_error}", level="WARNING")
                                 
                                 # Clean up temporary file
                                 Path(temp_json_path).unlink()
-                                
-                                log_progress(f"   📈 Statistics uploaded: s3://{bucket_name}/{stats_s3_key}")
                                 
                             except Exception as stats_error:
                                 log_progress(f"   ⚠️  Statistics upload failed: {stats_error}", level="WARNING")

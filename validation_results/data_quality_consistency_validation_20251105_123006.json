@@ -1,0 +1,151 @@
+{
+  "validation_start_time": "2025-11-05T12:29:46.217515",
+  "test_results": {
+    "data_quality_across_months": {
+      "test_name": "data_quality_across_months",
+      "success": false,
+      "months_validated": 0,
+      "quality_issues": [
+        {
+          "month": "2024-01",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-02",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-03",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-04",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-05",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-06",
+          "issue": "validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        }
+      ],
+      "quality_summary": {
+        "average_quality_score": 0,
+        "quality_consistency": 1.0,
+        "months_with_issues": 0,
+        "issue_rate": 0.0
+      },
+      "recommendations": [
+        "Overall data quality below acceptable threshold (80%)"
+      ]
+    },
+    "rollover_detection_consistency": {
+      "test_name": "rollover_detection_consistency",
+      "success": "False",
+      "months_validated": 6,
+      "rollover_issues": [],
+      "rollover_summary": {
+        "total_rollover_events": 9,
+        "avg_events_per_month": 1.5,
+        "avg_percentage_affected": 0.017093434343434345,
+        "rollover_consistency": 0.36171568701864987,
+        "months_with_rollover_issues": 0
+      },
+      "recommendations": [
+        "Inconsistent rollover detection across months"
+      ]
+    },
+    "feature_engineering_consistency": {
+      "test_name": "feature_engineering_consistency",
+      "success": "False",
+      "months_validated": 6,
+      "feature_issues": [
+        {
+          "type": "excessive_high_nan_features",
+          "count": 43,
+          "threshold": 8.6,
+          "severity": "medium"
+        }
+      ],
+      "feature_summary": {
+        "expected_features": 43,
+        "avg_features_generated": 43.0,
+        "feature_count_consistency": "True",
+        "avg_nan_percentage": 14.166666666666666,
+        "nan_consistency": 0.1255254295324103,
+        "feature_name_consistency": true,
+        "months_with_feature_issues": 1,
+        "unique_feature_names": 43
+      },
+      "recommendations": [
+        "Inconsistent NaN percentages across months"
+      ]
+    },
+    "win_rate_weight_distribution": {
+      "test_name": "win_rate_weight_distribution",
+      "success": false,
+      "months_validated": 0,
+      "distribution_issues": [
+        {
+          "month": "2024-01",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-02",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-03",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-04",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-05",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        },
+        {
+          "month": "2024-06",
+          "issue": "distribution_validation_error",
+          "details": "'>' not supported between instances of 'str' and 'int'"
+        }
+      ],
+      "distribution_summary": {},
+      "recommendations": [
+        "No distribution statistics available for validation"
+      ]
+    }
+  },
+  "overall_success": false,
+  "summary": {
+    "total_tests": 4,
+    "passed_tests": 0,
+    "failed_tests": 4,
+    "pass_rate": 0.0,
+    "test_months_created": 6,
+    "total_recommendations": 4
+  },
+  "recommendations": [
+    "Overall data quality below acceptable threshold (80%)",
+    "Inconsistent rollover detection across months",
+    "Inconsistent NaN percentages across months",
+    "No distribution statistics available for validation"
+  ],
+  "validation_end_time": "2025-11-05T12:30:06.922985",
+  "total_duration_seconds": 20.712059259414673
+}
