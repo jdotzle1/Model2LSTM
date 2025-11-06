@@ -1093,15 +1093,20 @@ def process_single_month(file_info):
             # Cleanup failure is not critical
         
         # Final memory cleanup
-        gc.collect()
-        final_memory = check_memory_and_cleanup()
+        try:
+            import gc
+            gc.collect()
+            final_memory = check_memory_and_cleanup()
+        except Exception as cleanup_error:
+            log_progress(f"   ⚠️  Cleanup warning: {cleanup_error}")
+            final_memory = psutil.Process().memory_info().rss / (1024**2)
         
         # Calculate and log final statistics
         total_time = time.time() - processing_state['start_time']
         peak_memory = max(processing_state['memory_usage']) if processing_state['memory_usage'] else 0
         
         # Determine overall success
-        critical_stages = ['download', 'processing']
+        critical_stages = ['download', 'processing', 'upload']
         successful_critical = all(stage in processing_state['stages_completed'] for stage in critical_stages)
         
         if successful_critical:
