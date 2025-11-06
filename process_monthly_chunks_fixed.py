@@ -1842,19 +1842,41 @@ def process_monthly_data(file_info):
                 # Win rate analysis
                 win_rates = {}
                 for col in label_columns:
-                    win_rate = df_final[col].mean()
-                    win_rates[col] = float(win_rate)
+                    try:
+                        win_rate = df_final[col].mean()
+                        win_rates[col] = float(win_rate)
+                    except Exception as label_error:
+                        win_rates[col] = f"Error: {label_error}"
                 
                 # Feature quality analysis
                 feature_quality = {}
                 for col in feature_columns:
-                    nan_pct = (df_final[col].isna().sum() / len(df_final)) * 100
-                    feature_quality[col] = {
-                        'nan_percentage': float(nan_pct),
-                        'min_value': float(df_final[col].min()) if not df_final[col].isna().all() else None,
-                        'max_value': float(df_final[col].max()) if not df_final[col].isna().all() else None,
-                        'mean_value': float(df_final[col].mean()) if not df_final[col].isna().all() else None
-                    }
+                    try:
+                        nan_pct = (df_final[col].isna().sum() / len(df_final)) * 100
+                        
+                        # Check if column is numeric
+                        if pd.api.types.is_numeric_dtype(df_final[col]):
+                            feature_quality[col] = {
+                                'nan_percentage': float(nan_pct),
+                                'min_value': float(df_final[col].min()) if not df_final[col].isna().all() else None,
+                                'max_value': float(df_final[col].max()) if not df_final[col].isna().all() else None,
+                                'mean_value': float(df_final[col].mean()) if not df_final[col].isna().all() else None,
+                                'data_type': 'numeric'
+                            }
+                        else:
+                            # For non-numeric columns, just track NaN percentage and unique values
+                            unique_count = df_final[col].nunique()
+                            feature_quality[col] = {
+                                'nan_percentage': float(nan_pct),
+                                'unique_values': int(unique_count),
+                                'data_type': 'non_numeric',
+                                'sample_values': df_final[col].dropna().head(3).tolist() if not df_final[col].isna().all() else []
+                            }
+                    except Exception as col_error:
+                        feature_quality[col] = {
+                            'error': str(col_error),
+                            'data_type': 'error'
+                        }
                 
                 # Add to processing stats
                 processing_stats['labeling_results'] = {
