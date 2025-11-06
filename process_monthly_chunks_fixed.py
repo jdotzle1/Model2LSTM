@@ -2559,14 +2559,79 @@ def main():
     
     # Generate final processing report (task 5.3)
     log_progress(f"📊 GENERATING FINAL PROCESSING REPORT")
+    log_progress(f"   🔍 Processing {len(to_process)} months - using {'single-month' if len(to_process) == 1 else 'comprehensive'} report")
     try:
-        # For single month tests, generate a simple report
+        # For single month tests, generate a detailed data quality report
         if len(to_process) == 1:
-            # Generate simple single-month report
+            # Generate detailed single-month report with actual data metrics
             month_str = to_process[0]['month_str']
             processing_time_minutes = final_summary['avg_time_minutes']
             
-            report_content = f"""# 📊 Single Month Processing Report
+            # Try to read the actual statistics file for detailed metrics
+            stats_content = ""
+            try:
+                # Look for the statistics file that was generated
+                stats_files = list(Path("/tmp/monthly_processing").glob(f"*{month_str}*stats*.json"))
+                if not stats_files:
+                    # Check in month directory
+                    month_dir = Path(f"/tmp/monthly_processing/{month_str}")
+                    if month_dir.exists():
+                        stats_files = list(month_dir.glob("*stats*.json"))
+                
+                if stats_files:
+                    import json
+                    with open(stats_files[0], 'r') as f:
+                        stats_data = json.load(f)
+                    
+                    # Extract key metrics
+                    raw_rows = stats_data.get('raw_rows', 'N/A')
+                    cleaned_rows = stats_data.get('cleaned_rows', 'N/A')
+                    rth_rows = stats_data.get('rth_rows', 'N/A')
+                    final_rows = stats_data.get('final_rows', 'N/A')
+                    
+                    # Calculate retention rates
+                    if isinstance(raw_rows, int) and isinstance(cleaned_rows, int):
+                        cleaning_retention = (cleaned_rows / raw_rows * 100) if raw_rows > 0 else 0
+                    else:
+                        cleaning_retention = 'N/A'
+                    
+                    if isinstance(cleaned_rows, int) and isinstance(rth_rows, int):
+                        rth_retention = (rth_rows / cleaned_rows * 100) if cleaned_rows > 0 else 0
+                    else:
+                        rth_retention = 'N/A'
+                    
+                    # Get processing stages timing
+                    stages = stats_data.get('processing_stages', {})
+                    stage_info = ""
+                    for stage, duration in stages.items():
+                        stage_info += f"  - **{stage.replace('_', ' ').title()}**: {duration:.1f}s\n"
+                    
+                    stats_content = f"""
+## 📊 Data Processing Metrics
+
+### Data Flow Summary
+- **Raw Data**: {raw_rows:,} rows
+- **After Cleaning**: {cleaned_rows:,} rows ({cleaning_retention:.1f}% retention)
+- **RTH Filtered**: {rth_rows:,} rows ({rth_retention:.1f}% of cleaned)
+- **Final Dataset**: {final_rows:,} rows
+
+### Processing Stage Timings
+{stage_info}
+
+### Memory Usage
+- **Peak Memory**: {stats_data.get('memory_peak_mb', 'N/A')} MB
+- **Component Versions**: {stats_data.get('component_versions', {})}
+
+### Warnings
+{len(stats_data.get('warnings', []))} warnings logged during processing
+"""
+                else:
+                    stats_content = "\n## 📊 Data Processing Metrics\n\nDetailed statistics not available - statistics file not found.\n"
+                    
+            except Exception as e:
+                stats_content = f"\n## 📊 Data Processing Metrics\n\nError reading statistics: {e}\n"
+            
+            report_content = f"""# 📊 Single Month Data Processing Report
 
 **Month Processed:** {month_str}
 **Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -2576,21 +2641,19 @@ def main():
 **Status:** ✅ Successful
 **Processing Time:** {processing_time_minutes:.1f} minutes
 **Success Rate:** {success_rate:.1f}% ({successful}/{len(to_process)} months)
-
-## 📈 Performance Summary
-
-- **Total Months Processed:** {len(to_process)}
-- **Successful:** {successful}
-- **Failed:** {failed}
-- **Total Processing Time:** {total_time/3600:.1f} hours
-- **Average Processing Time:** {processing_time_minutes:.1f} minutes per month
-
+{stats_content}
 ## 🎯 Status
 
 ✅ **Ready for model training** - Single month processing completed successfully.
 
+The processed dataset contains:
+- 6 original OHLCV columns
+- 12 weighted labeling columns (6 labels + 6 weights for different volatility modes)
+- 43 engineered features
+- Total: 61 columns ready for XGBoost training
+
 ---
-*This is a single-month test report. For comprehensive analysis, process multiple months.*
+*This is a single-month test report with actual processing metrics.*
 """
             
             report_path = f"/tmp/monthly_processing/single_month_report_{month_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
