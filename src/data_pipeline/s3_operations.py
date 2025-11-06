@@ -752,35 +752,8 @@ class EnhancedS3Operations:
                     print(f"   ⚠️  Statistics upload error: {stats_error}")
                     # Continue - statistics upload failure is not critical
             
-            # Step 5.5: Upload processing report if available
-            try:
-                report_files = list(Path("/tmp/monthly_processing").glob("final_processing_report_*.md"))
-                if report_files:
-                    latest_report = max(report_files, key=lambda x: x.stat().st_mtime)
-                    report_s3_key = f"processed-data/monthly/{year}/{month}/reports/{file_info['month_str']}_processing_report.md"
-                    
-                    report_metadata = {
-                        'content_type': 'text/markdown',
-                        'month': file_info['month_str'],
-                        'file_type': 'processing_report'
-                    }
-                    
-                    report_upload_result = self.upload_file_with_progress(
-                        local_file=str(latest_report),
-                        s3_key=report_s3_key,
-                        metadata=report_metadata,
-                        validate_before=False,
-                        validate_after=True
-                    )
-                    
-                    if report_upload_result['success']:
-                        print(f"   📄 Processing report uploaded successfully")
-                    else:
-                        print(f"   ⚠️  Report upload failed: {report_upload_result['error_message']}")
-                        
-            except Exception as report_error:
-                print(f"   ⚠️  Report upload error: {report_error}")
-                # Continue - report upload failure is not critical
+            # Skip problematic MD report upload - focus on JSON statistics
+            print(f"   📊 Skipping MD report upload - JSON statistics contain all needed metrics")
             
             # Step 6: Clean up optimized file if it's different from original
             if optimized_file != processed_file:

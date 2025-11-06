@@ -1994,6 +1994,45 @@ def process_monthly_data(file_info):
             if processing_stats['warnings']:
                 log_progress(f"      Warnings ({len(processing_stats['warnings'])}): {'; '.join(processing_stats['warnings'][:2])}")
             
+            # Analyze labeling results for win rates and feature quality
+            try:
+                # Calculate win rates for each trading mode
+                label_columns = [col for col in df_final.columns if col.startswith('label_')]
+                weight_columns = [col for col in df_final.columns if col.startswith('weight_')]
+                feature_columns = [col for col in df_final.columns if col not in ['timestamp', 'open', 'high', 'low', 'close', 'volume'] and not col.startswith(('label_', 'weight_'))]
+                
+                # Win rate analysis
+                win_rates = {}
+                for col in label_columns:
+                    win_rate = df_final[col].mean()
+                    win_rates[col] = float(win_rate)
+                
+                # Feature quality analysis
+                feature_quality = {}
+                for col in feature_columns:
+                    nan_pct = (df_final[col].isna().sum() / len(df_final)) * 100
+                    feature_quality[col] = {
+                        'nan_percentage': float(nan_pct),
+                        'min_value': float(df_final[col].min()) if not df_final[col].isna().all() else None,
+                        'max_value': float(df_final[col].max()) if not df_final[col].isna().all() else None,
+                        'mean_value': float(df_final[col].mean()) if not df_final[col].isna().all() else None
+                    }
+                
+                # Add to processing stats
+                processing_stats['labeling_results'] = {
+                    'win_rates': win_rates,
+                    'total_label_columns': len(label_columns),
+                    'total_weight_columns': len(weight_columns)
+                }
+                processing_stats['feature_results'] = {
+                    'feature_quality': feature_quality,
+                    'total_feature_columns': len(feature_columns),
+                    'high_nan_features': [col for col, stats in feature_quality.items() if stats['nan_percentage'] > 35]
+                }
+                
+            except Exception as analysis_error:
+                processing_stats['warnings'].append(f"Could not analyze labeling/feature results: {analysis_error}")
+            
             # Save processing statistics for restart capability and debugging
             stats_file = output_file.parent / f"{month_str}_processing_stats.json"
             try:
