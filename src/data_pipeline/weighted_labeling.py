@@ -579,7 +579,7 @@ class LabelCalculator:
     """Handles win/loss determination and MAE tracking for individual trading modes"""
     
     def __init__(self, mode: TradingMode, enable_vectorization: bool = True, 
-                 roll_detection_threshold: float = 5.0):
+                 roll_detection_threshold: float = 20.0):
         """
         Initialize calculator for a specific trading mode
         
