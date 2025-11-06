@@ -68,7 +68,8 @@ class EnhancedProgressTracker:
                 trend_factor = self._calculate_trend_factor()
                 estimated_time = recent_avg * trend_factor
             else:
-                estimated_time = sum(self.month_durations) / len(self.month_durations) if self.month_durations else 1200  # 20 min default
+                recent_avg = sum(self.month_durations) / len(self.month_durations) if self.month_durations else 1200  # 20 min default
+                estimated_time = recent_avg
             
             remaining_months = self.total_months - self.completed_months
             eta_seconds = remaining_months * estimated_time
@@ -1858,7 +1859,10 @@ def process_monthly_data(file_info):
             
             # Quick validation by reading back a sample
             try:
-                sample_df = pd.read_parquet(output_file, nrows=100)
+                # Read first few rows to validate file integrity
+                sample_df = pd.read_parquet(output_file)
+                if len(sample_df) > 100:
+                    sample_df = sample_df.head(100)  # Take first 100 rows if file is large
                 if len(sample_df.columns) != len(df_final.columns):
                     raise ValueError("Column count mismatch in saved file")
             except Exception as read_error:
@@ -2345,11 +2349,37 @@ def cleanup_monthly_files(file_info):
 
 def main():
     """Enhanced main monthly processing pipeline with improved progress tracking and time estimation"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Process ES futures data monthly")
+    parser.add_argument("--test-month", help="Process only specific month (YYYY-MM format, e.g., 2010-07)")
+    parser.add_argument("--start-month", help="Start from specific month (YYYY-MM format)")
+    parser.add_argument("--end-month", help="End at specific month (YYYY-MM format)")
+    args = parser.parse_args()
+    
     log_progress("🚀 MONTHLY ES DATA PROCESSING PIPELINE (WITH DATA CLEANING)")
-    log_progress("Processing 15 years of data in monthly chunks")
+    
+    if args.test_month:
+        log_progress(f"🎯 SINGLE MONTH TEST MODE: {args.test_month}")
+    else:
+        log_progress("Processing 15 years of data in monthly chunks")
     
     # Generate file list
     monthly_files = generate_monthly_file_list()
+    
+    # Filter for specific month if requested
+    if args.test_month:
+        monthly_files = [f for f in monthly_files if f['month_str'] == args.test_month]
+        if not monthly_files:
+            log_progress(f"❌ Month {args.test_month} not found in available data")
+            return
+        log_progress(f"✅ Found test month: {args.test_month}")
+    elif args.start_month or args.end_month:
+        if args.start_month:
+            monthly_files = [f for f in monthly_files if f['month_str'] >= args.start_month]
+        if args.end_month:
+            monthly_files = [f for f in monthly_files if f['month_str'] <= args.end_month]
+        log_progress(f"✅ Filtered to date range: {len(monthly_files)} months")
     
     # Check existing files
     to_process = check_existing_processed_files(monthly_files)
