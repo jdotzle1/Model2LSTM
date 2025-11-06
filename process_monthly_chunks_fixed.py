@@ -1903,6 +1903,69 @@ def process_monthly_data(file_info):
                 'slowest_stage': max(processing_stats['processing_stages'].items(), key=lambda x: x[1]) if processing_stats['processing_stages'] else ('unknown', 0)
             }
             
+            # Data quality analysis - analyze the final dataset
+            data_quality_metrics = {}
+            try:
+                # Analyze labeling columns (6 modes × 2 columns each = 12 total)
+                label_columns = [col for col in df_final.columns if col.startswith('label_')]
+                weight_columns = [col for col in df_final.columns if col.startswith('weight_')]
+                
+                labeling_metrics = {}
+                for label_col in label_columns:
+                    mode_name = label_col.replace('label_', '')
+                    weight_col = f'weight_{mode_name}'
+                    
+                    if label_col in df_final.columns:
+                        win_rate = df_final[label_col].mean()  # Percentage of 1s (winners)
+                        total_trades = len(df_final[label_col])
+                        winners = df_final[label_col].sum()
+                        losers = total_trades - winners
+                        
+                        labeling_metrics[mode_name] = {
+                            'win_rate': float(win_rate),
+                            'total_trades': int(total_trades),
+                            'winners': int(winners),
+                            'losers': int(losers)
+                        }
+                        
+                        # Add weight statistics if available
+                        if weight_col in df_final.columns:
+                            labeling_metrics[mode_name].update({
+                                'avg_weight': float(df_final[weight_col].mean()),
+                                'min_weight': float(df_final[weight_col].min()),
+                                'max_weight': float(df_final[weight_col].max()),
+                                'weight_std': float(df_final[weight_col].std())
+                            })
+                
+                # Analyze feature columns (should be 43 features)
+                feature_columns = [col for col in df_final.columns if not col.startswith(('label_', 'weight_')) and col not in ['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+                
+                feature_metrics = {}
+                for feature_col in feature_columns:
+                    if feature_col in df_final.columns:
+                        series = df_final[feature_col]
+                        nan_pct = (series.isna().sum() / len(series)) * 100
+                        
+                        feature_metrics[feature_col] = {
+                            'nan_percentage': float(nan_pct),
+                            'min_value': float(series.min()) if not series.isna().all() else None,
+                            'max_value': float(series.max()) if not series.isna().all() else None,
+                            'mean_value': float(series.mean()) if not series.isna().all() else None,
+                            'std_value': float(series.std()) if not series.isna().all() else None
+                        }
+                
+                data_quality_metrics = {
+                    'labeling_metrics': labeling_metrics,
+                    'feature_metrics': feature_metrics,
+                    'total_columns': len(df_final.columns),
+                    'label_columns_count': len(label_columns),
+                    'weight_columns_count': len(weight_columns),
+                    'feature_columns_count': len(feature_columns)
+                }
+                
+            except Exception as e:
+                data_quality_metrics = {'error': f'Could not analyze data quality: {e}'}
+            
             # Quality indicators
             quality_indicators = {
                 'has_errors': len(processing_stats['errors']) > 0,
@@ -2557,130 +2620,18 @@ def main():
     elif success_rate < 100:
         log_progress(f"   💡 Recommendation: Consider reprocessing the {failed} failed months")
     
-    # Generate final processing report (task 5.3)
-    log_progress(f"📊 GENERATING FINAL PROCESSING REPORT")
-    log_progress(f"   🔍 Processing {len(to_process)} months - using {'single-month' if len(to_process) == 1 else 'comprehensive'} report")
-    try:
-        # For single month tests, generate a detailed data quality report
-        if len(to_process) == 1:
-            # Generate detailed single-month report with actual data metrics
-            month_str = to_process[0]['month_str']
-            processing_time_minutes = final_summary['avg_time_minutes']
-            
-            # Try to read the actual statistics file for detailed metrics
-            stats_content = ""
-            try:
-                # Look for the statistics file that was generated
-                stats_files = list(Path("/tmp/monthly_processing").glob(f"*{month_str}*stats*.json"))
-                if not stats_files:
-                    # Check in month directory
-                    month_dir = Path(f"/tmp/monthly_processing/{month_str}")
-                    if month_dir.exists():
-                        stats_files = list(month_dir.glob("*stats*.json"))
-                
-                if stats_files:
-                    import json
-                    with open(stats_files[0], 'r') as f:
-                        stats_data = json.load(f)
-                    
-                    # Extract key metrics
-                    raw_rows = stats_data.get('raw_rows', 'N/A')
-                    cleaned_rows = stats_data.get('cleaned_rows', 'N/A')
-                    rth_rows = stats_data.get('rth_rows', 'N/A')
-                    final_rows = stats_data.get('final_rows', 'N/A')
-                    
-                    # Calculate retention rates
-                    if isinstance(raw_rows, int) and isinstance(cleaned_rows, int):
-                        cleaning_retention = (cleaned_rows / raw_rows * 100) if raw_rows > 0 else 0
-                    else:
-                        cleaning_retention = 'N/A'
-                    
-                    if isinstance(cleaned_rows, int) and isinstance(rth_rows, int):
-                        rth_retention = (rth_rows / cleaned_rows * 100) if cleaned_rows > 0 else 0
-                    else:
-                        rth_retention = 'N/A'
-                    
-                    # Get processing stages timing
-                    stages = stats_data.get('processing_stages', {})
-                    stage_info = ""
-                    for stage, duration in stages.items():
-                        stage_info += f"  - **{stage.replace('_', ' ').title()}**: {duration:.1f}s\n"
-                    
-                    stats_content = f"""
-## 📊 Data Processing Metrics
-
-### Data Flow Summary
-- **Raw Data**: {raw_rows:,} rows
-- **After Cleaning**: {cleaned_rows:,} rows ({cleaning_retention:.1f}% retention)
-- **RTH Filtered**: {rth_rows:,} rows ({rth_retention:.1f}% of cleaned)
-- **Final Dataset**: {final_rows:,} rows
-
-### Processing Stage Timings
-{stage_info}
-
-### Memory Usage
-- **Peak Memory**: {stats_data.get('memory_peak_mb', 'N/A')} MB
-- **Component Versions**: {stats_data.get('component_versions', {})}
-
-### Warnings
-{len(stats_data.get('warnings', []))} warnings logged during processing
-"""
-                else:
-                    stats_content = "\n## 📊 Data Processing Metrics\n\nDetailed statistics not available - statistics file not found.\n"
-                    
-            except Exception as e:
-                stats_content = f"\n## 📊 Data Processing Metrics\n\nError reading statistics: {e}\n"
-            
-            report_content = f"""# 📊 Single Month Data Processing Report
-
-**Month Processed:** {month_str}
-**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-## 🎯 Processing Results
-
-**Status:** ✅ Successful
-**Processing Time:** {processing_time_minutes:.1f} minutes
-**Success Rate:** {success_rate:.1f}% ({successful}/{len(to_process)} months)
-{stats_content}
-## 🎯 Status
-
-✅ **Ready for model training** - Single month processing completed successfully.
-
-The processed dataset contains:
-- 6 original OHLCV columns
-- 12 weighted labeling columns (6 labels + 6 weights for different volatility modes)
-- 43 engineered features
-- Total: 61 columns ready for XGBoost training
-
----
-*This is a single-month test report with actual processing metrics.*
-"""
-            
-            report_path = f"/tmp/monthly_processing/single_month_report_{month_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-            with open(report_path, 'w') as f:
-                f.write(report_content)
-            
-        else:
-            # Generate comprehensive report for multiple months
-            from src.data_pipeline.final_processing_report import generate_final_processing_report
-            report_content, report_path = generate_final_processing_report("/tmp/monthly_processing")
-        
-        if report_path:
-            log_progress(f"   ✅ Final processing report generated successfully")
-            log_progress(f"   📄 Report saved to: {report_path}")
-            
-            # Log key findings from the report
-            if success_rate >= 95:
-                log_progress(f"   🎯 Status: Ready for model training (success rate: {success_rate:.1f}%)")
-            elif success_rate >= 85:
-                log_progress(f"   ⚠️  Status: Minor reprocessing needed (success rate: {success_rate:.1f}%)")
-            else:
-                log_progress(f"   🔄 Status: Significant reprocessing required (success rate: {success_rate:.1f}%)")
-        else:
-            log_progress(f"   ⚠️  Warning: Could not generate final processing report", level="WARNING")
+    # Use JSON statistics instead of problematic markdown report
+    log_progress(f"📊 PROCESSING COMPLETE - DATA QUALITY METRICS IN JSON STATISTICS")
+    log_progress(f"   📊 Statistics JSON files uploaded to S3 contain all data quality metrics")
+    log_progress(f"   🎯 Processed data ready for XGBoost training")
     
-    except Exception as e:
-        log_progress(f"   ❌ Error generating final processing report: {e}", level="ERROR", error_details=e)
+    # Log final status based on success rate
+    if success_rate >= 95:
+        log_progress(f"   🎯 Status: Ready for model training (success rate: {success_rate:.1f}%)")
+    elif success_rate >= 85:
+        log_progress(f"   ⚠️  Status: Minor reprocessing needed (success rate: {success_rate:.1f}%)")
+    else:
+        log_progress(f"   🔄 Status: Significant reprocessing required (success rate: {success_rate:.1f}%)")
     
     return {
         'successful': successful,
