@@ -1012,15 +1012,22 @@ def process_single_month(file_info):
                 try:
                     # Read and preserve statistics file content before cleanup
                     stats_file = Path(f"/tmp/monthly_processing/{month_str}/{month_str}_processing_stats.json")
+                    log_progress(f"   🔍 Looking for statistics file: {stats_file}")
                     if stats_file.exists():
                         log_progress(f"   📊 Found local statistics file: {stats_file}")
                         # Read the actual statistics content
                         import json
                         with open(stats_file, 'r') as f:
                             stats_content = json.load(f)
+                        log_progress(f"   📊 Statistics content loaded: {len(str(stats_content))} characters")
                         monthly_statistics = {"stats_content": stats_content, "stats_file": str(stats_file)}
                     else:
-                        log_progress(f"   ⚠️  No local statistics file found")
+                        log_progress(f"   ⚠️  No local statistics file found at {stats_file}")
+                        # Check what files do exist
+                        month_dir = stats_file.parent
+                        if month_dir.exists():
+                            files = list(month_dir.glob("*.json"))
+                            log_progress(f"   🔍 Files in {month_dir}: {[f.name for f in files]}")
                         monthly_statistics = None
                     
                 except Exception as stats_error:
@@ -2197,57 +2204,7 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                             except Exception as report_error:
                                 log_progress(f"   ⚠️  Report upload failed: {report_error}", level="WARNING")
                         
-                        # Upload comprehensive statistics as separate JSON file with organized structure
-                        if monthly_statistics and isinstance(monthly_statistics, dict) and 'stats_file' not in monthly_statistics:
-                            stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/monthly_{file_info['month_str']}_{timestamp}_statistics.json"
-                            
-                            try:
-                                # Create temporary JSON file
-                                import tempfile
-                                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                                    if hasattr(monthly_statistics, 'to_json'):
-                                        temp_file.write(monthly_statistics.to_json())
-                                    else:
-                                        # Fallback for basic statistics
-                                        import json
-                                        json.dump({
-                                            'month': file_info['month_str'],
-                                            'processing_date': timestamp,
-                                            'statistics_available': True
-                                        }, temp_file, indent=2)
-                                    temp_json_path = temp_file.name
-                                
-                                # Upload statistics JSON with retry
-                                for stats_attempt in range(2):  # Fewer retries for statistics
-                                    try:
-                                        s3_client.upload_file(
-                                            temp_json_path,
-                                            bucket_name,
-                                            stats_s3_key,
-                                            ExtraArgs={
-                                                'Metadata': {
-                                                    'content_type': 'application/json',
-                                                    'month': file_info['month_str'],
-                                                    'statistics_version': '1.0',
-                                                    'related_data_file': s3_key
-                                                }
-                                            }
-                                        )
-                                        log_progress(f"   📈 Statistics uploaded: s3://{bucket_name}/{stats_s3_key}")
-                                        break
-                                    except Exception as stats_retry_error:
-                                        if stats_attempt == 0:
-                                            log_progress(f"   ⚠️  Statistics upload retry {stats_attempt + 1}: {stats_retry_error}")
-                                            time.sleep(2)
-                                        else:
-                                            log_progress(f"   ⚠️  Statistics upload failed: {stats_retry_error}", level="WARNING")
-                                
-                                # Clean up temporary file
-                                Path(temp_json_path).unlink()
-                                
-                            except Exception as stats_error:
-                                log_progress(f"   ⚠️  Statistics upload failed: {stats_error}", level="WARNING")
-                                # Don't fail the main upload for statistics upload failure
+                        # Old placeholder logic removed - real statistics uploaded above
                         
                         return True
                     else:
