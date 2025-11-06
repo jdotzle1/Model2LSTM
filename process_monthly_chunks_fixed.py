@@ -822,7 +822,9 @@ def validate_file_integrity(file_path, file_type="unknown", expected_min_size_mb
         elif file_type == "parquet":
             try:
                 # Try to read a small sample to validate format
-                df_sample = pd.read_parquet(file_path, nrows=10)
+                df_sample = pd.read_parquet(file_path)
+                if len(df_sample) > 10:
+                    df_sample = df_sample.head(10)
                 
                 if len(df_sample.columns) == 0:
                     validation_result['error_message'] = "Parquet file has no columns"
@@ -2070,7 +2072,9 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
         
         # Read comprehensive stats from parquet file
         try:
-            df_sample = pd.read_parquet(processed_file, nrows=1000)
+            df_sample = pd.read_parquet(processed_file)
+            if len(df_sample) > 1000:
+                df_sample = df_sample.head(1000)
             row_count = len(pd.read_parquet(processed_file))
             column_count = len(df_sample.columns)
             
@@ -2302,7 +2306,9 @@ def validate_processed_file(file_path):
         
         # Try to read parquet file
         try:
-            df_sample = pd.read_parquet(file_path, nrows=100)
+            df_sample = pd.read_parquet(file_path)
+            if len(df_sample) > 100:
+                df_sample = df_sample.head(100)
             
             # Check for required columns
             required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
