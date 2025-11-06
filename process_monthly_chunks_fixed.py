@@ -1010,39 +1010,14 @@ def process_single_month(file_info):
             try:
                 # Collect comprehensive statistics before upload
                 try:
-                    from src.data_pipeline.monthly_statistics import MonthlyStatisticsCollector
-                    
-                    # Initialize statistics collector for this month
-                    stats_collector = MonthlyStatisticsCollector(month_str)
-                    
-                    # Record processing data flow
-                    stats_collector.record_data_flow('raw', processing_stats.get('raw_rows', 0))
-                    stats_collector.record_data_flow('cleaned', processing_stats.get('cleaned_rows', 0))
-                    stats_collector.record_data_flow('rth', processing_stats.get('rth_rows', 0))
-                    stats_collector.record_data_flow('final', processing_stats.get('final_rows', 0))
-                    
-                    # Record processing times and memory usage
-                    for stage_name, stage_time in processing_stats.get('processing_stages', {}).items():
-                        stats_collector.stage_times[stage_name] = stage_time
-                    
-                    stats_collector.peak_memory_mb = processing_stats.get('memory_peak_mb', 0)
-                    stats_collector.final_memory_mb = processing_stats.get('memory_at_stages', {}).get('final', 0)
-                    
-                    # Record component versions
-                    for component, version in processing_stats.get('component_versions', {}).items():
-                        stats_collector.record_component_version(component, version)
-                    
-                    # Record any errors and warnings
-                    for error in processing_stats.get('errors', []):
-                        stats_collector.add_error(error)
-                    for warning in processing_stats.get('warnings', []):
-                        stats_collector.add_warning(warning)
-                    
-                    # Read processed file to collect comprehensive statistics
-                    df_for_stats = pd.read_parquet(processed_file)
-                    monthly_statistics = stats_collector.collect_comprehensive_statistics(df_for_stats)
-                    
-                    log_progress(f"   📊 Collected comprehensive statistics: Quality score {monthly_statistics.overall_quality_score:.2f}")
+                    # Check if local statistics file exists and upload it
+                    stats_file = Path(f"/tmp/monthly_processing/{month_str}/{month_str}_processing_stats.json")
+                    if stats_file.exists():
+                        log_progress(f"   📊 Found local statistics file: {stats_file}")
+                        monthly_statistics = {"stats_file": str(stats_file)}
+                    else:
+                        log_progress(f"   ⚠️  No local statistics file found")
+                        monthly_statistics = None
                     
                 except Exception as stats_error:
                     log_progress(f"   ⚠️  Statistics collection failed: {stats_error}", level="WARNING")
@@ -2161,8 +2136,55 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                         log_progress(f"   ✅ Uploaded and verified: s3://{bucket_name}/{s3_key}")
                         log_progress(f"   📊 File: {file_size_mb:.1f} MB, {row_count:,} rows, {column_count} columns")
                         
+                        # Upload local statistics file and processing report to S3
+                        month_str = file_info['month_str']
+                        year, month = month_str.split('-')
+                        
+                        # Upload processing statistics JSON
+                        stats_file = Path(f"/tmp/monthly_processing/{month_str}/{month_str}_processing_stats.json")
+                        if stats_file.exists():
+                            stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/{month_str}_processing_stats.json"
+                            try:
+                                s3_client.upload_file(
+                                    str(stats_file),
+                                    bucket_name,
+                                    stats_s3_key,
+                                    ExtraArgs={
+                                        'Metadata': {
+                                            'content_type': 'application/json',
+                                            'month': month_str,
+                                            'file_type': 'processing_statistics'
+                                        }
+                                    }
+                                )
+                                log_progress(f"   📊 Processing statistics uploaded: s3://{bucket_name}/{stats_s3_key}")
+                            except Exception as stats_error:
+                                log_progress(f"   ⚠️  Statistics upload failed: {stats_error}", level="WARNING")
+                        
+                        # Upload final processing report if it exists
+                        report_files = list(Path("/tmp/monthly_processing").glob("final_processing_report_*.md"))
+                        if report_files:
+                            latest_report = max(report_files, key=lambda x: x.stat().st_mtime)
+                            report_s3_key = f"processed-data/monthly/{year}/{month}/reports/{month_str}_processing_report.md"
+                            try:
+                                s3_client.upload_file(
+                                    str(latest_report),
+                                    bucket_name,
+                                    report_s3_key,
+                                    ExtraArgs={
+                                        'Metadata': {
+                                            'content_type': 'text/markdown',
+                                            'month': month_str,
+                                            'file_type': 'processing_report'
+                                        }
+                                    }
+                                )
+                                log_progress(f"   📄 Processing report uploaded: s3://{bucket_name}/{report_s3_key}")
+                            except Exception as report_error:
+                                log_progress(f"   ⚠️  Report upload failed: {report_error}", level="WARNING")
+                        
                         # Upload comprehensive statistics as separate JSON file with organized structure
-                        if monthly_statistics:
+                        if monthly_statistics and isinstance(monthly_statistics, dict) and 'stats_file' not in monthly_statistics:
                             stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/monthly_{file_info['month_str']}_{timestamp}_statistics.json"
                             
                             try:
