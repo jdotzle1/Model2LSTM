@@ -706,16 +706,20 @@ class EnhancedS3Operations:
                 stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/monthly_{file_info['month_str']}_{timestamp}_statistics.json"
                 
                 try:
-                    # Create temporary JSON file
+                    # Create temporary JSON file with real statistics content
                     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
                         if hasattr(monthly_statistics, 'to_json'):
                             temp_file.write(monthly_statistics.to_json())
+                        elif isinstance(monthly_statistics, dict) and 'stats_content' in monthly_statistics:
+                            # Use the real statistics content
+                            json.dump(monthly_statistics['stats_content'], temp_file, indent=2)
                         else:
-                            # Fallback for basic statistics
+                            # Only use fallback if no real statistics available
                             json.dump({
                                 'month': file_info['month_str'],
                                 'processing_date': timestamp,
-                                'statistics_available': True
+                                'statistics_available': True,
+                                'note': 'Real statistics not available - this is a placeholder'
                             }, temp_file, indent=2)
                         temp_json_path = temp_file.name
                     
@@ -747,6 +751,36 @@ class EnhancedS3Operations:
                 except Exception as stats_error:
                     print(f"   ⚠️  Statistics upload error: {stats_error}")
                     # Continue - statistics upload failure is not critical
+            
+            # Step 5.5: Upload processing report if available
+            try:
+                report_files = list(Path("/tmp/monthly_processing").glob("final_processing_report_*.md"))
+                if report_files:
+                    latest_report = max(report_files, key=lambda x: x.stat().st_mtime)
+                    report_s3_key = f"processed-data/monthly/{year}/{month}/reports/{file_info['month_str']}_processing_report.md"
+                    
+                    report_metadata = {
+                        'content_type': 'text/markdown',
+                        'month': file_info['month_str'],
+                        'file_type': 'processing_report'
+                    }
+                    
+                    report_upload_result = self.upload_file_with_progress(
+                        local_file=str(latest_report),
+                        s3_key=report_s3_key,
+                        metadata=report_metadata,
+                        validate_before=False,
+                        validate_after=True
+                    )
+                    
+                    if report_upload_result['success']:
+                        print(f"   📄 Processing report uploaded successfully")
+                    else:
+                        print(f"   ⚠️  Report upload failed: {report_upload_result['error_message']}")
+                        
+            except Exception as report_error:
+                print(f"   ⚠️  Report upload error: {report_error}")
+                # Continue - report upload failure is not critical
             
             # Step 6: Clean up optimized file if it's different from original
             if optimized_file != processed_file:
