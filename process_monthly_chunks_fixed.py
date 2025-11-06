@@ -2564,6 +2564,8 @@ def main():
         if len(to_process) == 1:
             # Generate simple single-month report
             month_str = to_process[0]['month_str']
+            processing_time_minutes = final_summary['avg_time_minutes']
+            
             report_content = f"""# 📊 Single Month Processing Report
 
 **Month Processed:** {month_str}
@@ -2572,15 +2574,16 @@ def main():
 ## 🎯 Processing Results
 
 **Status:** ✅ Successful
-**Processing Time:** {successful_durations[0]/60:.1f} minutes
-**Success Rate:** 100.0% (1/1 months)
+**Processing Time:** {processing_time_minutes:.1f} minutes
+**Success Rate:** {success_rate:.1f}% ({successful}/{len(to_process)} months)
 
 ## 📈 Performance Summary
 
-- **Total Months Processed:** 1
+- **Total Months Processed:** {len(to_process)}
 - **Successful:** {successful}
 - **Failed:** {failed}
-- **Average Processing Time:** {successful_durations[0]/60:.1f} minutes per month
+- **Total Processing Time:** {total_time/3600:.1f} hours
+- **Average Processing Time:** {processing_time_minutes:.1f} minutes per month
 
 ## 🎯 Status
 
