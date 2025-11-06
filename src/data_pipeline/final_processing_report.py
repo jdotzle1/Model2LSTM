@@ -108,7 +108,7 @@ class FinalProcessingReportGenerator:
         stats_dir = self.output_dir / "statistics"
         
         if not stats_dir.exists():
-            print(f"Warning: Statistics directory not found at {stats_dir}")
+            # For single month tests, this is expected - don't show as warning
             return
         
         # Load all monthly statistics JSON files
