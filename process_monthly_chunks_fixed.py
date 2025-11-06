@@ -1010,11 +1010,15 @@ def process_single_month(file_info):
             try:
                 # Collect comprehensive statistics before upload
                 try:
-                    # Check if local statistics file exists and upload it
+                    # Read and preserve statistics file content before cleanup
                     stats_file = Path(f"/tmp/monthly_processing/{month_str}/{month_str}_processing_stats.json")
                     if stats_file.exists():
                         log_progress(f"   📊 Found local statistics file: {stats_file}")
-                        monthly_statistics = {"stats_file": str(stats_file)}
+                        # Read the actual statistics content
+                        import json
+                        with open(stats_file, 'r') as f:
+                            stats_content = json.load(f)
+                        monthly_statistics = {"stats_content": stats_content, "stats_file": str(stats_file)}
                     else:
                         log_progress(f"   ⚠️  No local statistics file found")
                         monthly_statistics = None
@@ -2140,13 +2144,19 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                         month_str = file_info['month_str']
                         year, month = month_str.split('-')
                         
-                        # Upload processing statistics JSON
-                        stats_file = Path(f"/tmp/monthly_processing/{month_str}/{month_str}_processing_stats.json")
-                        if stats_file.exists():
+                        # Upload processing statistics JSON using preserved content
+                        if monthly_statistics and "stats_content" in monthly_statistics:
                             stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/{month_str}_processing_stats.json"
                             try:
+                                import tempfile
+                                import json
+                                # Create temporary file with the actual statistics content
+                                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_stats_file:
+                                    json.dump(monthly_statistics["stats_content"], temp_stats_file, indent=2)
+                                    temp_stats_path = temp_stats_file.name
+                                
                                 s3_client.upload_file(
-                                    str(stats_file),
+                                    temp_stats_path,
                                     bucket_name,
                                     stats_s3_key,
                                     ExtraArgs={
@@ -2158,6 +2168,10 @@ def upload_monthly_results(file_info, processed_file, monthly_statistics=None):
                                     }
                                 )
                                 log_progress(f"   📊 Processing statistics uploaded: s3://{bucket_name}/{stats_s3_key}")
+                                
+                                # Clean up temp file
+                                Path(temp_stats_path).unlink()
+                                
                             except Exception as stats_error:
                                 log_progress(f"   ⚠️  Statistics upload failed: {stats_error}", level="WARNING")
                         
