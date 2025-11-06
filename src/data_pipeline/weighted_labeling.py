@@ -1485,6 +1485,10 @@ class WeightedLabelingEngine:
         )
         
         # Add columns to DataFrame
+        # TEMPORARY FIX: Invert short labels since they appear to be backwards
+        if mode.direction == 'short':
+            labels = 1 - labels  # Invert 0->1 and 1->0 for short trades
+        
         df[mode.label_column] = labels
         df[mode.weight_column] = weights
         

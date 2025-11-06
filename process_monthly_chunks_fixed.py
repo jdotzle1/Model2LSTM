@@ -1844,10 +1844,6 @@ def process_monthly_data(file_info):
                 for col in label_columns:
                     try:
                         win_rate = df_final[col].mean()
-                        # TEMPORARY FIX: Invert short labels since they appear to be backwards
-                        if 'short' in col:
-                            win_rate = 1.0 - win_rate
-                            log_progress(f"   🔧 Inverted {col} win rate: {win_rate:.1%}")
                         win_rates[col] = float(win_rate)
                     except Exception as label_error:
                         win_rates[col] = f"Error: {label_error}"
