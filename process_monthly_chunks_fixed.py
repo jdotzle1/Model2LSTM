@@ -28,6 +28,14 @@ except ImportError:
     print("⚠️  Enhanced S3 operations not available, using basic operations")
     S3_OPERATIONS_AVAILABLE = False
 
+# Import contract filtering
+try:
+    from src.data_pipeline.contract_filtering import detect_and_filter_contracts, validate_contract_filtering
+    CONTRACT_FILTERING_AVAILABLE = True
+except ImportError:
+    print("⚠️  Contract filtering not available")
+    CONTRACT_FILTERING_AVAILABLE = False
+
 class EnhancedProgressTracker:
     """Enhanced progress tracking with improved time estimation and bottleneck identification"""
     
@@ -1568,25 +1576,14 @@ def process_monthly_data(file_info):
             # Enhanced timestamp handling with multiple fallback strategies
             timestamp_created = False
             
-            # Strategy 1: Use metadata timestamps
-            if hasattr(df.index, 'astype') and not timestamp_created:
+            # Strategy 1: Use ts_event index if it exists (CORRECT - actual timestamps from DBN)
+            if df.index.name == 'ts_event' and pd.api.types.is_datetime64_any_dtype(df.index):
                 try:
-                    start_ns = metadata.start
-                    end_ns = metadata.end
-                    total_rows = len(df)
-                    
-                    timestamps = pd.date_range(
-                        start=pd.to_datetime(start_ns, unit='ns', utc=True),
-                        end=pd.to_datetime(end_ns, unit='ns', utc=True),
-                        periods=total_rows
-                    )
-                    df.index = timestamps
-                    df.index.name = 'timestamp'
+                    df['timestamp'] = df.index
                     timestamp_created = True
-                    log_progress(f"   ✅ Created timestamps from metadata")
-                    
+                    log_progress(f"   ✅ Used ts_event index (actual DBN timestamps)")
                 except Exception as ts_error:
-                    log_progress(f"   ⚠️  Metadata timestamp generation failed: {ts_error}")
+                    log_progress(f"   ⚠️  ts_event index conversion failed: {ts_error}")
             
             # Strategy 2: Use existing timestamp columns
             if not timestamp_created:
@@ -1599,6 +1596,30 @@ def process_monthly_data(file_info):
                             break
                         except Exception:
                             continue
+            
+            # Strategy 3: Use metadata timestamps (FALLBACK ONLY - creates evenly-spaced timestamps)
+            if not timestamp_created and hasattr(df.index, 'astype'):
+                try:
+                    start_ns = metadata.start
+                    end_ns = metadata.end
+                    total_rows = len(df)
+                    
+                    log_progress(f"   ⚠️  WARNING: Creating evenly-spaced timestamps from metadata")
+                    log_progress(f"      This may not reflect actual bar timestamps!")
+                    
+                    timestamps = pd.date_range(
+                        start=pd.to_datetime(start_ns, unit='ns', utc=True),
+                        end=pd.to_datetime(end_ns, unit='ns', utc=True),
+                        periods=total_rows
+                    )
+                    df.index = timestamps
+                    df.index.name = 'timestamp'
+                    timestamp_created = True
+                    processing_stats['warnings'].append("Created evenly-spaced timestamps from metadata")
+                    log_progress(f"   ⚠️  Created evenly-spaced timestamps from metadata")
+                    
+                except Exception as ts_error:
+                    log_progress(f"   ⚠️  Metadata timestamp generation failed: {ts_error}")
             
             # Strategy 3: Fallback to synthetic timestamps
             if not timestamp_created:
@@ -1646,6 +1667,44 @@ def process_monthly_data(file_info):
             return handle_stage_error('data_cleaning', e, critical=True)
         
         processing_stats['processing_stages']['data_cleaning'] = time.time() - stage_start
+        
+        # Stage 2.5: Contract roll detection and filtering (NEW)
+        stage_start = time.time()
+        log_progress(f"   🔄 Detecting and filtering contract rolls...")
+        
+        try:
+            if CONTRACT_FILTERING_AVAILABLE:
+                df_before_filtering = df_cleaned.copy()
+                df_cleaned, contract_stats = detect_and_filter_contracts(df_cleaned)
+                
+                # Validate filtering improved data quality
+                validation = validate_contract_filtering(df_before_filtering, df_cleaned)
+                
+                # Store statistics
+                processing_stats['contract_filtering'] = {
+                    'rows_removed': contract_stats['removed_rows'],
+                    'removal_percentage': contract_stats['removal_percentage'],
+                    'days_with_filtering': contract_stats['days_with_contract_filtering'],
+                    'gaps_removed': validation['gaps_removed'],
+                    'gap_reduction_pct': validation['gap_reduction_pct']
+                }
+                
+                log_progress(f"   ✅ Contract filtering: {contract_stats['removed_rows']:,} rows removed ({contract_stats['removal_percentage']:.1f}%)")
+                log_progress(f"      Gaps removed: {validation['gaps_removed']} ({validation['gap_reduction_pct']:.1f}%)")
+                
+                # Memory cleanup
+                del df_before_filtering
+                check_memory_and_cleanup('contract_filtering')
+            else:
+                log_progress(f"   ⚠️  Contract filtering not available, skipping")
+                processing_stats['warnings'].append("Contract filtering skipped (module not available)")
+                
+        except Exception as e:
+            log_progress(f"   ⚠️  Contract filtering failed: {e}", level="WARNING")
+            processing_stats['warnings'].append(f"Contract filtering failed: {e}")
+            # Continue without contract filtering
+        
+        processing_stats['processing_stages']['contract_filtering'] = time.time() - stage_start
         
         # Stage 3: Enhanced RTH filtering with better timezone handling
         stage_start = time.time()
