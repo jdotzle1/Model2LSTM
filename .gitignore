@@ -25,3 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
+# Ar
+chived files (old scripts, docs, test data)
+archive/
