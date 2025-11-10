@@ -28,7 +28,7 @@ def detect_and_filter_contracts(df: pd.DataFrame, min_daily_volume: int = 50000)
     Returns:
         Tuple of (filtered_df, stats_dict)
     """
-    print("🔄 Detecting and filtering contract rolls...")
+    print("Detecting and filtering contract rolls...")
     
     stats = {
         'original_rows': len(df),
@@ -120,7 +120,7 @@ def detect_and_filter_contracts(df: pd.DataFrame, min_daily_volume: int = 50000)
     days_with_filtering = sum(1 for info in stats['daily_contract_info'].values() if info['removed_bars'] > 0)
     stats['days_with_contract_filtering'] = days_with_filtering
     
-    print(f"   ✅ Contract filtering complete:")
+    print(f"   Contract filtering complete:")
     print(f"      Original: {stats['original_rows']:,} rows across {stats['original_dates']} days")
     print(f"      Filtered: {stats['filtered_rows']:,} rows across {stats['filtered_dates']} days")
     print(f"      Removed: {stats['removed_rows']:,} rows ({stats['removal_percentage']:.1f}%)")
