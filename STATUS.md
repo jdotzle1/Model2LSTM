@@ -10,10 +10,24 @@
   2. RTH filtering (07:30-15:00 CT with DST handling)
   3. Gap filling (true 1-second resolution, 27,000 bars/day)
 
+### Modular Structure Migration (NEW)
+- **Status:** ✅ Complete and tested
+- **Created:**
+  - `src/data_pipeline/monthly_processor.py` - Monthly batch orchestration (200 lines)
+  - `scripts/process_monthly_batches.py` - Production CLI (100 lines)
+  - `tests/integration/test_monthly_processor_integration.py` - Integration tests
+- **Benefits:**
+  - Clear separation of concerns
+  - Easy to test and maintain
+  - Obvious which script to use
+  - Replaces 2,783-line monolithic script
+- **Integration Tests:** ✅ All passing (3/3)
+
 ### File Organization
 - **Root directory:** Cleaned
-- **Archive:** Old investigation files moved to `archive/investigations/`
-- **Documentation:** Consolidated to essential files only
+- **Modular structure:** Implemented and tested
+- **Archive:** Ready to archive old scripts
+- **Documentation:** Complete with 7 new/updated guides
 
 ## ⏳ Blocked
 
@@ -44,20 +58,30 @@
 
 ## 📁 Key Files
 
-### Production Code
-- `src/data_pipeline/corrected_contract_filtering.py` - Corrected pipeline
+### Production Code (NEW STRUCTURE)
+**Core Modules:**
+- `src/data_pipeline/corrected_contract_filtering.py` - Contract filtering + gap filling
 - `src/data_pipeline/weighted_labeling.py` - Weighted labeling (6 modes)
 - `src/data_pipeline/features.py` - Feature engineering (43 features)
-- `process_monthly_chunks_fixed.py` - Main processing script
+- `src/data_pipeline/s3_operations.py` - S3 download/upload operations
+- `src/data_pipeline/monthly_processor.py` - Monthly batch orchestration (NEW)
+- `src/data_pipeline/pipeline.py` - Main pipeline integration
+
+**CLI Scripts:**
+- `scripts/process_monthly_batches.py` - PRODUCTION: Process 15 years from S3 (NEW)
+- `main.py` - Quick: Process single local file
+- `process_oct2025_final.py` - Testing: October 2025 validation
 
 ### Documentation
 - `STATUS.md` - This file (current status)
+- `FILE_MANAGEMENT_GUIDE.md` - File organization guide (NEW)
 - `CORRECTED_PIPELINE_SUMMARY.md` - Pipeline implementation summary
 - `DATABENTO_PYTHON314_ISSUE.md` - Python compatibility issue
 - `FINAL_INVESTIGATION_SUMMARY.md` - Historical investigation summary
 
-### Archive
-- `archive/investigations/` - Old test and investigation files
+### To Archive
+- `process_monthly_chunks_fixed.py` - Old 2,783-line script (replaced by modular structure)
+- `aws_setup/*.py` - Old EC2 scripts (superseded)
 
 ## 🎯 Success Criteria
 

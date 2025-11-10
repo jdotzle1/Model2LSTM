@@ -28,12 +28,12 @@ except ImportError:
     print("⚠️  Enhanced S3 operations not available, using basic operations")
     S3_OPERATIONS_AVAILABLE = False
 
-# Import contract filtering
+# Import corrected contract filtering
 try:
-    from src.data_pipeline.contract_filtering import detect_and_filter_contracts, validate_contract_filtering
+    from src.data_pipeline.corrected_contract_filtering import process_complete_pipeline
     CONTRACT_FILTERING_AVAILABLE = True
 except ImportError:
-    print("⚠️  Contract filtering not available")
+    print("⚠️  Corrected contract filtering not available")
     CONTRACT_FILTERING_AVAILABLE = False
 
 class EnhancedProgressTracker:
@@ -1668,87 +1668,100 @@ def process_monthly_data(file_info):
         
         processing_stats['processing_stages']['data_cleaning'] = time.time() - stage_start
         
-        # Stage 2.5: Contract roll detection and filtering (NEW)
+        # Stage 2.5: CORRECTED Contract filtering + RTH + Gap filling pipeline
         stage_start = time.time()
-        log_progress(f"   🔄 Detecting and filtering contract rolls...")
+        log_progress(f"   🔄 Running corrected pipeline (contract filtering + RTH + gap filling)...")
         
         try:
             if CONTRACT_FILTERING_AVAILABLE:
-                df_before_filtering = df_cleaned.copy()
-                df_cleaned, contract_stats = detect_and_filter_contracts(df_cleaned)
+                # Use the CORRECTED pipeline that does all three steps properly
+                df_cleaned, combined_stats = process_complete_pipeline(df_cleaned)
                 
-                # Validate filtering improved data quality
-                validation = validate_contract_filtering(df_before_filtering, df_cleaned)
+                # Extract stats from the combined pipeline
+                contract_stats = combined_stats.get('contract_filtering', {})
+                rth_stats = combined_stats.get('rth_filtering', {})
+                gap_stats = combined_stats.get('gap_filling', {})
                 
-                # Store statistics
-                processing_stats['contract_filtering'] = {
-                    'rows_removed': contract_stats['removed_rows'],
-                    'removal_percentage': contract_stats['removal_percentage'],
-                    'days_with_filtering': contract_stats['days_with_contract_filtering'],
-                    'gaps_removed': validation['gaps_removed'],
-                    'gap_reduction_pct': validation['gap_reduction_pct']
-                }
+                # Store comprehensive statistics
+                processing_stats['contract_filtering'] = contract_stats
+                processing_stats['rth_filtering_corrected'] = rth_stats
+                processing_stats['gap_filling'] = gap_stats
                 
-                log_progress(f"   ✅ Contract filtering: {contract_stats['removed_rows']:,} rows removed ({contract_stats['removal_percentage']:.1f}%)")
-                log_progress(f"      Gaps removed: {validation['gaps_removed']} ({validation['gap_reduction_pct']:.1f}%)")
+                log_progress(f"   ✅ Corrected pipeline complete:")
+                log_progress(f"      Contract filtering: {contract_stats.get('removed_rows', 0):,} rows removed")
+                log_progress(f"      RTH filtering: {rth_stats.get('rth_rows', 0):,} rows kept")
+                log_progress(f"      Gap filling: {gap_stats.get('added_rows', 0):,} rows added")
+                log_progress(f"      Final: {len(df_cleaned):,} rows")
                 
                 # Memory cleanup
-                del df_before_filtering
-                check_memory_and_cleanup('contract_filtering')
+                check_memory_and_cleanup('corrected_pipeline')
+                
+                # Skip the old RTH filtering stage since corrected pipeline already did it
+                processing_stats['rth_rows'] = len(df_cleaned)
+                df_rth = df_cleaned  # Rename for compatibility with rest of code
+                
             else:
-                log_progress(f"   ⚠️  Contract filtering not available, skipping")
-                processing_stats['warnings'].append("Contract filtering skipped (module not available)")
+                log_progress(f"   ⚠️  Corrected pipeline not available, skipping")
+                processing_stats['warnings'].append("Corrected pipeline skipped (module not available)")
+                # Will fall through to old RTH filtering
+                df_rth = df_cleaned
                 
         except Exception as e:
-            log_progress(f"   ⚠️  Contract filtering failed: {e}", level="WARNING")
-            processing_stats['warnings'].append(f"Contract filtering failed: {e}")
-            # Continue without contract filtering
+            log_progress(f"   ⚠️  Corrected pipeline failed: {e}", level="WARNING")
+            processing_stats['warnings'].append(f"Corrected pipeline failed: {e}")
+            # Fall back to old processing
+            df_rth = df_cleaned
         
-        processing_stats['processing_stages']['contract_filtering'] = time.time() - stage_start
+        processing_stats['processing_stages']['corrected_pipeline'] = time.time() - stage_start
         
-        # Stage 3: Enhanced RTH filtering with better timezone handling
-        stage_start = time.time()
-        log_progress(f"   🕐 Filtering to RTH...")
-        
-        try:
-            central_tz = pytz.timezone('US/Central')
+        # Stage 3: RTH filtering (SKIPPED if corrected pipeline was used)
+        # The corrected pipeline already does contract filtering + RTH + gap filling
+        # This stage only runs if corrected pipeline failed/unavailable
+        if 'df_rth' not in locals():
+            stage_start = time.time()
+            log_progress(f"   🕐 Filtering to RTH (fallback - corrected pipeline not used)...")
             
-            timestamps = pd.to_datetime(df_cleaned['timestamp'])
-            if timestamps.dt.tz is None:
-                timestamps = timestamps.dt.tz_localize(pytz.UTC)
+            try:
+                central_tz = pytz.timezone('US/Central')
+                
+                timestamps = pd.to_datetime(df_cleaned['timestamp'])
+                if timestamps.dt.tz is None:
+                    timestamps = timestamps.dt.tz_localize(pytz.UTC)
+                
+                central_timestamps = timestamps.dt.tz_convert(central_tz)
+                df_time = central_timestamps.dt.time
+                
+                rth_start_time = dt_time(7, 30)
+                rth_end_time = dt_time(15, 0)
+                
+                rth_mask = (df_time >= rth_start_time) & (df_time < rth_end_time)
+                df_rth = df_cleaned[rth_mask].copy()
+                
+                # Ensure UTC timestamps for consistency
+                df_rth['timestamp'] = timestamps[rth_mask].dt.tz_convert(pytz.UTC)
+                
+                processing_stats['rth_rows'] = len(df_rth)
+                rth_percentage = len(df_rth) / len(df_cleaned) * 100 if len(df_cleaned) > 0 else 0
+                
+                log_progress(f"   ✅ RTH filtered: {len(df_rth):,} rows ({rth_percentage:.1f}%)")
+                
+                # Validate RTH percentage is reasonable (should be 30-40%)
+                if rth_percentage < 20 or rth_percentage > 60:
+                    processing_stats['warnings'].append(f"Unusual RTH percentage: {rth_percentage:.1f}%")
+                
+                # Memory cleanup after RTH filtering
+                del df_cleaned
+                check_memory_and_cleanup('rth_filtering')
+                
+                if len(df_rth) == 0:
+                    raise ValueError("No RTH data found")
+                
+            except Exception as e:
+                return handle_stage_error('rth_filtering', e, critical=True)
             
-            central_timestamps = timestamps.dt.tz_convert(central_tz)
-            df_time = central_timestamps.dt.time
-            
-            rth_start_time = dt_time(7, 30)
-            rth_end_time = dt_time(15, 0)
-            
-            rth_mask = (df_time >= rth_start_time) & (df_time < rth_end_time)
-            df_rth = df_cleaned[rth_mask].copy()
-            
-            # Ensure UTC timestamps for consistency
-            df_rth['timestamp'] = timestamps[rth_mask].dt.tz_convert(pytz.UTC)
-            
-            processing_stats['rth_rows'] = len(df_rth)
-            rth_percentage = len(df_rth) / len(df_cleaned) * 100 if len(df_cleaned) > 0 else 0
-            
-            log_progress(f"   ✅ RTH filtered: {len(df_rth):,} rows ({rth_percentage:.1f}%)")
-            
-            # Validate RTH percentage is reasonable (should be 30-40%)
-            if rth_percentage < 20 or rth_percentage > 60:
-                processing_stats['warnings'].append(f"Unusual RTH percentage: {rth_percentage:.1f}%")
-            
-            # Memory cleanup after RTH filtering
-            del df_cleaned
-            check_memory_and_cleanup('rth_filtering')
-            
-            if len(df_rth) == 0:
-                raise ValueError("No RTH data found")
-            
-        except Exception as e:
-            return handle_stage_error('rth_filtering', e, critical=True)
-        
-        processing_stats['processing_stages']['rth_filtering'] = time.time() - stage_start
+            processing_stats['processing_stages']['rth_filtering'] = time.time() - stage_start
+        else:
+            log_progress(f"   ⏭️  RTH filtering skipped (already done by corrected pipeline)")
         
         # Stage 4: Enhanced weighted labeling with improved integration and fallback
         stage_start = time.time()
