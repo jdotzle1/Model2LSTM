@@ -23,11 +23,15 @@
   - Replaces 2,783-line monolithic script
 - **Integration Tests:** ✅ All passing (3/3)
 
-### File Organization
-- **Root directory:** Cleaned
+### Repository Cleanup (FINAL)
+- **Status:** ✅ Complete
+- **Root directory:** EXACTLY 6 files (as required)
+  - .gitignore, README.md, STATUS.md, QUICK_START.md, main.py, requirements.txt
 - **Modular structure:** Implemented and tested
-- **Archive:** Ready to archive old scripts
-- **Documentation:** Complete with 7 new/updated guides
+- **Archived:** 18 old files (scripts, docs, data)
+- **Steering documents:** Updated with strict rules
+- **Before:** 25+ files in root (chaos)
+- **After:** 6 files in root (professional) ✅
 
 ## ⏳ Blocked
 
@@ -72,16 +76,18 @@
 - `main.py` - Quick: Process single local file
 - `process_oct2025_final.py` - Testing: October 2025 validation
 
-### Documentation
-- `STATUS.md` - This file (current status)
-- `FILE_MANAGEMENT_GUIDE.md` - File organization guide (NEW)
-- `CORRECTED_PIPELINE_SUMMARY.md` - Pipeline implementation summary
-- `DATABENTO_PYTHON314_ISSUE.md` - Python compatibility issue
-- `FINAL_INVESTIGATION_SUMMARY.md` - Historical investigation summary
+### Documentation (Root Only)
+- `README.md` - Professional project overview
+- `STATUS.md` - This file (SINGLE SOURCE OF TRUTH)
+- `QUICK_START.md` - Quick reference guide
 
-### To Archive
-- `process_monthly_chunks_fixed.py` - Old 2,783-line script (replaced by modular structure)
-- `aws_setup/*.py` - Old EC2 scripts (superseded)
+**All other documentation archived in `archive/old_docs/`**
+
+### Archived Files
+- `archive/old_scripts/` - 5 old scripts (including 2,783-line monster)
+- `archive/old_docs/` - 13 documentation files (migration, investigations, etc.)
+- `archive/test_data/` - 2 test data files
+- `archive/old_*/` - 6 old directories (aws_setup, deployment, etc.)
 
 ## 🎯 Success Criteria
 

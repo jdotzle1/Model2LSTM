@@ -17,50 +17,46 @@
 
 ## Common Commands
 
-### Local Development & Testing
+### Production: Monthly S3 Processing
 ```bash
-# Data conversion
-python project/convert_dbn.py
+# PRODUCTION: Process all 15 years from S3 (skip already processed)
+python scripts/process_monthly_batches.py --skip-existing
 
-# PRODUCTION: Weighted labeling full dataset
-python ec2_weighted_labeling_pipeline.py
+# Process specific date range
+python scripts/process_monthly_batches.py --start-year 2024 --start-month 1 --end-year 2024 --end-month 12
 
-# Pipeline testing (small samples)
-python test_final_integration_1000_bars.py       # Complete integration test
-python tests/test_weighted_labeling_comprehensive.py  # Weighted labeling tests
-python tests/test_features_comprehensive.py      # Feature engineering tests
-
-# Validation (ALWAYS run before production)
-python run_comprehensive_validation.py           # Complete validation suite
-python validate_data_quality.py                  # Data quality checks
-python validate_performance.py                   # Performance validation
-
-# Utility scripts
-python project/scripts/prepare_data.py
-python project/scripts/validate_features.py
-python project/scripts/visualize_features.py
-python project/scripts/check_dataset_size.py
+# Process single month
+python scripts/process_monthly_batches.py --start-year 2025 --start-month 10 --end-month 10
 ```
 
-### Production Deployment (EC2)
+### Testing: Local Development
 ```bash
-# Extract deployment package
-tar -xzf ec2_deployment_package_[timestamp].tar.gz
+# Integration test (no data processing)
+python tests/integration/test_monthly_processor_integration.py
 
-# Set up environment
-export S3_BUCKET=your-bucket-name
-chmod +x setup_ec2_environment.sh
-./setup_ec2_environment.sh
+# Process local file
+python main.py --input data.parquet --output processed.parquet
 
-# Validate setup
-./validate_ec2_setup.sh
+# With validation
+python main.py --input data.parquet --output processed.parquet --validate
 
-# Run weighted labeling pipeline
-python ec2_weighted_labeling_pipeline.py --bucket $S3_BUCKET
+# Complete integration test (requires data)
+python tests/integration/test_final_integration_1000_bars.py
 
-# Monitor progress
-./monitor_pipeline.sh
-python check_progress.py
+# Unit tests
+python -m pytest tests/unit/ -v
+```
+
+### Validation (ALWAYS run before production)
+```bash
+# Complete validation suite
+python tests/validation/run_comprehensive_validation.py
+
+# Data quality checks
+python tests/validation/validate_data_quality.py
+
+# Performance validation
+python tests/validation/validate_performance.py
 ```
 
 ## Performance Optimizations
