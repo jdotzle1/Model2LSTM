@@ -710,16 +710,22 @@ class EnhancedS3Operations:
                     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
                         if hasattr(monthly_statistics, 'to_json'):
                             temp_file.write(monthly_statistics.to_json())
-                        elif isinstance(monthly_statistics, dict) and 'stats_content' in monthly_statistics:
-                            # Use the real statistics content
-                            json.dump(monthly_statistics['stats_content'], temp_file, indent=2)
+                        elif isinstance(monthly_statistics, dict):
+                            # Use the actual statistics dict from process_complete_pipeline
+                            stats_output = {
+                                'month': file_info['month_str'],
+                                'processing_date': timestamp,
+                                'statistics_available': True,
+                                'pipeline_statistics': monthly_statistics
+                            }
+                            json.dump(stats_output, temp_file, indent=2)
                         else:
                             # Only use fallback if no real statistics available
                             json.dump({
                                 'month': file_info['month_str'],
                                 'processing_date': timestamp,
-                                'statistics_available': True,
-                                'note': 'Real statistics not available - this is a placeholder'
+                                'statistics_available': False,
+                                'note': 'Statistics object not provided'
                             }, temp_file, indent=2)
                         temp_json_path = temp_file.name
                     

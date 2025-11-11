@@ -127,6 +127,21 @@ class MonthlyProcessor:
             config = PipelineConfig(chunk_size=500_000)
             df_final = process_labeling_and_features(df_processed, config)
             
+            # Calculate labeling statistics for reporting
+            print(f"\n📊 Calculating final statistics...")
+            labeling_stats = self._calculate_labeling_stats(df_final)
+            stats['labeling'] = labeling_stats
+            
+            # Print summary
+            print(f"\n{'='*80}")
+            print(f"PROCESSING SUMMARY - {month_str}")
+            print(f"{'='*80}")
+            print(f"Final dataset: {len(df_final):,} rows × {len(df_final.columns)} columns")
+            print(f"\nWin Rates:")
+            for mode, mode_stats in labeling_stats['modes'].items():
+                print(f"  {mode}: {mode_stats['win_rate']:.1%} ({mode_stats['winners']:,} winners)")
+            print(f"{'='*80}\n")
+            
             # Stage 4: Save
             print(f"💾 Stage 4: Saving...")
             output_file = Path(file_info['output_file'])
@@ -150,6 +165,36 @@ class MonthlyProcessor:
             print(f"❌ {month_str} failed: {e}")
             self._cleanup_month(file_info)
             return None
+    
+    def _calculate_labeling_stats(self, df: pd.DataFrame) -> Dict:
+        """Calculate statistics from labeled data"""
+        from .weighted_labeling import TRADING_MODES
+        
+        stats = {
+            'total_rows': len(df),
+            'total_columns': len(df.columns),
+            'modes': {}
+        }
+        
+        for mode_name, mode in TRADING_MODES.items():
+            label_col = mode.label_column
+            weight_col = mode.weight_column
+            
+            if label_col in df.columns and weight_col in df.columns:
+                winners = df[label_col] == 1
+                losers = df[label_col] == 0
+                
+                mode_stats = {
+                    'win_rate': df[label_col].mean(),
+                    'winners': int(winners.sum()),
+                    'losers': int(losers.sum()),
+                    'avg_weight': float(df[weight_col].mean()),
+                    'avg_winner_weight': float(df.loc[winners, weight_col].mean()) if winners.any() else 0.0,
+                    'avg_loser_weight': float(df.loc[losers, weight_col].mean()) if losers.any() else 0.0
+                }
+                stats['modes'][mode_name] = mode_stats
+        
+        return stats
     
     def _cleanup_month(self, file_info: Dict):
         """Clean up temporary files for a month"""
