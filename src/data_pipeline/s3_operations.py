@@ -702,9 +702,11 @@ class EnhancedS3Operations:
             print(f"      ⚡ Speed: {upload_result['upload_speed_mbps']:.1f} MB/s")
             
             # Step 5: Upload statistics JSON if available
+            print(f"   🔍 Checking statistics: type={type(monthly_statistics)}, is_dict={isinstance(monthly_statistics, dict)}", flush=True)
             if monthly_statistics:
                 stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/monthly_{file_info['month_str']}_{timestamp}_statistics.json"
                 print(f"   📊 Preparing statistics upload...", flush=True)
+                print(f"      Statistics keys: {list(monthly_statistics.keys()) if isinstance(monthly_statistics, dict) else 'N/A'}", flush=True)
                 
                 try:
                     # Create temporary JSON file with real statistics content
@@ -719,7 +721,8 @@ class EnhancedS3Operations:
                                 'statistics_available': True,
                                 'pipeline_statistics': monthly_statistics
                             }
-                            json.dump(stats_output, temp_file, indent=2)
+                            # Use default handler for non-serializable types
+                            json.dump(stats_output, temp_file, indent=2, default=str)
                         else:
                             # Only use fallback if no real statistics available
                             json.dump({
@@ -729,6 +732,9 @@ class EnhancedS3Operations:
                                 'note': 'Statistics object not provided'
                             }, temp_file, indent=2)
                         temp_json_path = temp_file.name
+                    
+                    print(f"      📝 Statistics JSON created: {temp_json_path}", flush=True)
+                    print(f"      📏 File size: {Path(temp_json_path).stat().st_size} bytes", flush=True)
                     
                     # Upload statistics with validation
                     stats_metadata = {
