@@ -33,6 +33,16 @@ def convert_dbn_file(dbn_path, rth_only=True):
     print(f"Loaded {len(df):,} bars")
     print(f"Columns: {df.columns.tolist()}")
     
+    # DBN files have timestamp in the index
+    if 'timestamp' not in df.columns and df.index.name == 'ts_event':
+        df = df.reset_index()
+        df = df.rename(columns={'ts_event': 'timestamp'})
+        print(f"Converted index to timestamp column")
+    
+    # Keep only OHLCV columns
+    required_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+    df = df[required_cols]
+    
     if rth_only:
         df = filter_rth_only(df)
         print(f"After RTH filtering: {len(df):,} bars")
@@ -123,17 +133,17 @@ def add_session_boundaries(df):
 
 def main():
     """Example usage"""
-    # Example path - update with your actual file
-    dbn_path = r"C:\Users\jdotzler\Desktop\Databento\second\ES\glbx-mdp3-20250922-20251021.ohlcv-1s.dbn.zst"
+    # October 2025 data file
+    dbn_path = r"C:\Users\jdotzler\Downloads\glbx-mdp3-20251001-20251031.ohlcv-1s.dbn.zst"
     
     try:
         # Convert with RTH filtering
         df = convert_dbn_file(dbn_path, rth_only=True)
         
         # Save as Parquet
-        output_path = "data/raw/test_sample.parquet"
+        output_path = "oct2025_raw.parquet"
         df.to_parquet(output_path, index=False)
-        print(f"Saved to {output_path}")
+        print(f"\n✓ Saved to {output_path}")
         
         # Show sample data
         print("\nSample data:")
@@ -143,9 +153,12 @@ def main():
         print(f"\nTime range:")
         print(f"Start: {df['timestamp'].min()}")
         print(f"End: {df['timestamp'].max()}")
+        print(f"Total bars: {len(df):,}")
         
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

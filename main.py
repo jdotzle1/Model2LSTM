@@ -2,14 +2,17 @@
 """
 ES Trading Model - Main Entry Point
 
-This is the main production entry point for the weighted labeling pipeline.
-Processes ES futures data through the complete pipeline:
-1. Weighted labeling (6 volatility modes)
-2. Feature engineering (43 features)
-3. Output validation for XGBoost training
+This is the main production entry point for the complete data pipeline.
+Processes ES futures data through:
+1. Contract filtering (volume-based, single contract per day)
+2. Gap filling (1-second resolution)
+3. Weighted labeling (6 volatility modes)
+4. Feature engineering (43 features)
+5. Output validation for XGBoost training
 
 Usage:
-    python main.py --input data.parquet --output processed_data.parquet
+    python main.py --input data.dbn.zst --output processed_data.parquet
+    python main.py --input data.parquet --output processed_data.parquet --skip-filtering
     python main.py --help
 """
 
@@ -21,6 +24,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from src.data_pipeline.corrected_contract_filtering import process_complete_pipeline
 from src.data_pipeline.pipeline import process_labeling_and_features, PipelineConfig
 from src.data_pipeline.validation_utils import run_comprehensive_validation
 
@@ -40,13 +44,19 @@ Examples:
     parser.add_argument(
         "--input", "-i",
         required=True,
-        help="Input parquet file with OHLCV data"
+        help="Input file (DBN.ZST or Parquet with OHLCV data)"
     )
     
     parser.add_argument(
         "--output", "-o", 
         required=True,
         help="Output parquet file for processed data"
+    )
+    
+    parser.add_argument(
+        "--skip-filtering",
+        action="store_true",
+        help="Skip contract filtering and gap filling (use if data is already filtered)"
     )
     
     parser.add_argument(
@@ -93,10 +103,30 @@ Examples:
         # Load input data
         import pandas as pd
         print("Loading input data...")
-        df = pd.read_parquet(args.input)
+        
+        # Check if input is DBN or Parquet
+        if args.input.endswith('.dbn.zst') or args.input.endswith('.dbn'):
+            import databento as db
+            print("  Loading DBN file...")
+            store = db.DBNStore.from_file(args.input)
+            df = store.to_df()
+            if df.index.name == 'ts_event':
+                df = df.reset_index()
+                df = df.rename(columns={'ts_event': 'timestamp'})
+        else:
+            df = pd.read_parquet(args.input)
+        
         print(f"✓ Loaded {len(df):,} rows")
         
-        # Process pipeline
+        # Apply contract filtering and gap filling (unless skipped)
+        if not args.skip_filtering:
+            print("\nApplying contract filtering and gap filling...")
+            df, stats = process_complete_pipeline(df)
+            print(f"✓ Filtered and gap-filled to {len(df):,} rows")
+        else:
+            print("\n⚠️  Skipping contract filtering and gap filling")
+        
+        # Process labeling and features
         print("\nProcessing weighted labeling and features...")
         df_processed = process_labeling_and_features(df, config)
         print(f"✓ Generated {len(df_processed.columns)} columns")
