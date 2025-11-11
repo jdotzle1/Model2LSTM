@@ -704,6 +704,7 @@ class EnhancedS3Operations:
             # Step 5: Upload statistics JSON if available
             if monthly_statistics:
                 stats_s3_key = f"processed-data/monthly/{year}/{month}/statistics/monthly_{file_info['month_str']}_{timestamp}_statistics.json"
+                print(f"   📊 Preparing statistics upload...", flush=True)
                 
                 try:
                     # Create temporary JSON file with real statistics content
@@ -749,14 +750,19 @@ class EnhancedS3Operations:
                     Path(temp_json_path).unlink()
                     
                     if stats_upload_result['success']:
-                        print(f"   📈 Statistics uploaded successfully")
+                        print(f"   📈 Statistics uploaded successfully", flush=True)
+                        print(f"      📍 Location: s3://{self.bucket_name}/{stats_s3_key}", flush=True)
                     else:
-                        print(f"   ⚠️  Statistics upload failed: {stats_upload_result['error_message']}")
+                        print(f"   ⚠️  Statistics upload failed: {stats_upload_result['error_message']}", flush=True)
                         # Don't fail the main upload for statistics failure
                     
                 except Exception as stats_error:
-                    print(f"   ⚠️  Statistics upload error: {stats_error}")
+                    print(f"   ⚠️  Statistics upload error: {stats_error}", flush=True)
+                    import traceback
+                    traceback.print_exc()
                     # Continue - statistics upload failure is not critical
+            else:
+                print(f"   ⚠️  No statistics provided for upload", flush=True)
             
             # Skip problematic MD report upload - focus on JSON statistics
             print(f"   📊 Skipping MD report upload - JSON statistics contain all needed metrics")
