@@ -103,13 +103,13 @@ class MonthlyProcessor:
         
         try:
             # Stage 1: Download
-            print(f"📥 Stage 1: Downloading...")
+            print(f"📥 Stage 1: Downloading...", flush=True)
             if not self.s3_ops.download_monthly_file_optimized(file_info):
-                print(f"❌ Download failed for {month_str}")
+                print(f"❌ Download failed for {month_str}", flush=True)
                 return None
             
             # Stage 2: Process (contract filtering + gap filling)
-            print(f"🔧 Stage 2: Processing...")
+            print(f"🔧 Stage 2: Processing...", flush=True)
             local_file = Path(file_info['local_file'])
             
             import databento as db
@@ -123,46 +123,49 @@ class MonthlyProcessor:
             df_processed, stats = process_complete_pipeline(df_raw)
             
             # Stage 3: Add features and labels
-            print(f"🏷️  Stage 3: Labeling and features...")
+            print(f"🏷️  Stage 3: Labeling and features...", flush=True)
             config = PipelineConfig(chunk_size=500_000)
             df_final = process_labeling_and_features(df_processed, config)
             
             # Calculate labeling statistics for reporting
-            print(f"\n📊 Calculating final statistics...")
+            print(f"\n📊 Calculating final statistics...", flush=True)
             labeling_stats = self._calculate_labeling_stats(df_final)
             stats['labeling'] = labeling_stats
             
             # Print summary
-            print(f"\n{'='*80}")
-            print(f"PROCESSING SUMMARY - {month_str}")
-            print(f"{'='*80}")
-            print(f"Final dataset: {len(df_final):,} rows × {len(df_final.columns)} columns")
-            print(f"\nWin Rates:")
+            print(f"\n{'='*80}", flush=True)
+            print(f"PROCESSING SUMMARY - {month_str}", flush=True)
+            print(f"{'='*80}", flush=True)
+            print(f"Final dataset: {len(df_final):,} rows × {len(df_final.columns)} columns", flush=True)
+            print(f"\nWin Rates:", flush=True)
             for mode, mode_stats in labeling_stats['modes'].items():
-                print(f"  {mode}: {mode_stats['win_rate']:.1%} ({mode_stats['winners']:,} winners)")
-            print(f"{'='*80}\n")
+                print(f"  {mode}: {mode_stats['win_rate']:.1%} ({mode_stats['winners']:,} winners)", flush=True)
+            print(f"{'='*80}\n", flush=True)
             
             # Stage 4: Save
-            print(f"💾 Stage 4: Saving...")
+            print(f"💾 Stage 4: Saving...", flush=True)
             output_file = Path(file_info['output_file'])
             output_file.parent.mkdir(parents=True, exist_ok=True)
             df_final.to_parquet(output_file)
             
             # Stage 5: Upload
-            print(f"📤 Stage 5: Uploading...")
+            print(f"📤 Stage 5: Uploading...", flush=True)
             if not self.s3_ops.upload_monthly_results_optimized(file_info, str(output_file), stats):
-                print(f"⚠️  Upload failed for {month_str}")
+                print(f"⚠️  Upload failed for {month_str}", flush=True)
             
             # Cleanup
-            print(f"🧹 Stage 6: Cleanup...")
+            print(f"🧹 Stage 6: Cleanup...", flush=True)
             self._cleanup_month(file_info)
             gc.collect()
             
-            print(f"✅ {month_str} completed successfully")
+            print(f"✅ {month_str} completed successfully", flush=True)
             return str(output_file)
             
         except Exception as e:
-            print(f"❌ {month_str} failed: {e}")
+            print(f"❌ {month_str} failed: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
             self._cleanup_month(file_info)
             return None
     
@@ -223,17 +226,17 @@ class MonthlyProcessor:
             
             if result:
                 results['successful'] += 1
-                print(f"✅ {month_str} completed in {month_duration/60:.1f} minutes")
+                print(f"✅ {month_str} completed in {month_duration/60:.1f} minutes", flush=True)
             else:
                 results['failed'] += 1
                 results['failed_months'].append(month_str)
-                print(f"❌ {month_str} failed after {month_duration/60:.1f} minutes")
+                print(f"❌ {month_str} failed after {month_duration/60:.1f} minutes", flush=True)
             
             # Progress update
             elapsed = time.time() - start_time
             avg_time = elapsed / i
             remaining = (len(monthly_files) - i) * avg_time
-            print(f"📊 Progress: {i}/{len(monthly_files)} - ETA: {remaining/3600:.1f}h")
+            print(f"📊 Progress: {i}/{len(monthly_files)} - ETA: {remaining/3600:.1f}h", flush=True)
         
         total_time = time.time() - start_time
         results['total_time_hours'] = total_time / 3600

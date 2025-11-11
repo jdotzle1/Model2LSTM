@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 -u
 """
 Process 15 years of ES data in monthly batches
 
@@ -14,6 +14,10 @@ import sys
 import os
 from pathlib import Path
 import argparse
+
+# Force unbuffered output for nohup/background processes
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
