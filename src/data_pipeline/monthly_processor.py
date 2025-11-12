@@ -5,6 +5,7 @@ Handles processing of 15 years of ES data in monthly chunks from S3.
 Uses modular components for S3 operations, pipeline processing, and monitoring.
 """
 
+import sys
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
